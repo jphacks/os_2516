@@ -1,0 +1,28 @@
+{
+  "magic_types": [
+    {
+      "id": "fireball",
+      "name": "ファイアボール",
+      "mp_cost": 40,
+      "description": "炎の球体を放ち、着弾地点で爆発させる攻撃魔法。",
+      "damage": 30,
+      "sound":""
+    },
+    {
+      "id": "thunderbolt",
+      "name": "サンダーボルト",
+      "mp_cost": 40,
+      "description": "雷光の槍を落とし、単体に大ダメージと一時的な感電を与える。",
+      "damage": 30,
+      "sound":""
+    },
+    {
+      "id": "wind_cutter",
+      "name": "ウィンドカッター",
+      "mp_cost": 40,
+      "description": "鋭い風刃を飛ばし、敵を切り裂きながら移動速度を低下させる。",
+      "damage":30,
+      "sound":""
+    }
+  ]
+}
