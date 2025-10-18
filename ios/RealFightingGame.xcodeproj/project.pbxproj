@@ -393,11 +393,12 @@
 				CODE_SIGN_ENTITLEMENTS = RealFightingGame/RealFightingGame.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 36W8MW4V4U;
+				DEVELOPMENT_TEAM = 4JM26Q6UWC;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "The app exchanges discovery tokens with nearby peers over the local network.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "現在地を地図に表示し、付近のスポットを案内するために使用します。";
 				INFOPLIST_KEY_NSNearbyInteractionUsageDescription = "The app measures distance and direction to nearby players.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -414,7 +415,7 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.4;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.RealFightingGame;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hoge10.RealFightingGame;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
@@ -434,11 +435,12 @@
 				CODE_SIGN_ENTITLEMENTS = RealFightingGame/RealFightingGame.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 36W8MW4V4U;
+				DEVELOPMENT_TEAM = 4JM26Q6UWC;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "The app exchanges discovery tokens with nearby peers over the local network.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "現在地を地図に表示し、付近のスポットを案内するために使用します。";
 				INFOPLIST_KEY_NSNearbyInteractionUsageDescription = "The app measures distance and direction to nearby players.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -455,7 +457,7 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.4;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.RealFightingGame;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hoge10.RealFightingGame;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
