@@ -12,7 +12,7 @@ Go 製のREST API です。Apple Sign In認証機能とリアルタイム格闘�
 ### API エンドポイント
 - `/health` - ヘルスチェック
 - `/supabase/health` - Supabase接続確認
-- `/auth/apple/signin` - Apple Sign In
+- `/auth/apple` - Apple Sign In
 - `/auth/refresh` - トークンリフレッシュ
 - `/auth/logout` - ログアウト
 - `/api/protected` - 認証が必要なエンドポイント（例）
@@ -80,4 +80,3 @@ curl http://localhost:8080/health
 
 ## Cloud Run デプロイ (GitHub Actions)
 `GCP_PROJECT`, `GCP_REGION`, `CLOUD_RUN_SERVICE`, `GCP_SA_KEY`, `SUPABASE_DB_URL` を GitHub Secrets に登録すると、`deploy-cloudrun` ワークフローがトリガーされた際に Cloud Run へ自動デプロイされます。デプロイ後、ワークフローの `Verify health endpoint` ステップが `/health` を自動検証します。
-

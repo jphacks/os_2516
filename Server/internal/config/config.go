@@ -26,6 +26,8 @@ type DatabaseConfig struct {
 
 // AuthConfig は認証設定です
 type AuthConfig struct {
+	Enabled       bool
+	Required      bool
 	JWTSecret     string
 	AppleClientID string
 	AppleTeamID   string
@@ -47,6 +49,7 @@ func Load() (*Config, error) {
 			URL: getEnv("DATABASE_URL", ""),
 		},
 		Auth: AuthConfig{
+			Required:      getEnvBool("AUTH_REQUIRED", true),
 			JWTSecret:     getEnv("JWT_SECRET", ""),
 			AppleClientID: getEnv("APPLE_CLIENT_ID", ""),
 			AppleTeamID:   getEnv("APPLE_TEAM_ID", ""),
@@ -67,20 +70,11 @@ func Load() (*Config, error) {
 
 // Validate は設定の妥当性を検証します
 func (c *Config) Validate() error {
-	if c.Auth.JWTSecret == "" {
-		return fmt.Errorf("JWT_SECRET is required")
-	}
+	missingAuth := c.Auth.missingFields()
+	c.Auth.Enabled = len(missingAuth) == 0
 
-	if c.Auth.AppleClientID == "" {
-		return fmt.Errorf("APPLE_CLIENT_ID is required")
-	}
-
-	if c.Auth.AppleTeamID == "" {
-		return fmt.Errorf("APPLE_TEAM_ID is required")
-	}
-
-	if c.Auth.AppleKeyID == "" {
-		return fmt.Errorf("APPLE_KEY_ID is required")
+	if c.Auth.Required && len(missingAuth) > 0 {
+		return fmt.Errorf("auth credentials missing: %s", strings.Join(missingAuth, ", "))
 	}
 
 	return nil
@@ -100,4 +94,40 @@ func getEnvSlice(key string, defaultValue []string) []string {
 		return strings.Split(value, ",")
 	}
 	return defaultValue
+}
+
+// getEnvBool は環境変数を bool として取得します
+func getEnvBool(key string, defaultValue bool) bool {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return defaultValue
+	}
+
+	switch strings.ToLower(value) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return defaultValue
+	}
+}
+
+func (a *AuthConfig) missingFields() []string {
+	var missing []string
+
+	if a.JWTSecret == "" {
+		missing = append(missing, "JWT_SECRET")
+	}
+	if a.AppleClientID == "" {
+		missing = append(missing, "APPLE_CLIENT_ID")
+	}
+	if a.AppleTeamID == "" {
+		missing = append(missing, "APPLE_TEAM_ID")
+	}
+	if a.AppleKeyID == "" {
+		missing = append(missing, "APPLE_KEY_ID")
+	}
+
+	return missing
 }
