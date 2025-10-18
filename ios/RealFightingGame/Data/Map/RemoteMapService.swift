@@ -39,7 +39,8 @@ struct RemoteMapService: MapService {
         let payload = try decoder.decode(MapSpotsResponse.self, from: data)
         let spots = payload.spots.map {
             MapPin(title: $0.name,
-                   coordinate: CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude))
+                   coordinate: CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude),
+                   sourceID: $0.id)
         }
 
         let userPin = payload.playerLocation.map {
@@ -75,4 +76,3 @@ extension RemoteMapService {
         let playerLocation: PlayerLocation?
     }
 }
-

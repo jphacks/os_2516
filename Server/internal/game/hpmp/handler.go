@@ -16,6 +16,7 @@ import (
 type PlayerRepository interface {
 	CreatePlayer(ctx context.Context, player *entities.Player) error
 	GetPlayerByUserID(ctx context.Context, userID uuid.UUID) (*entities.Player, error)
+	GetPlayerByID(ctx context.Context, playerID uuid.UUID) (*entities.Player, error)
 	UpdatePlayerHP(ctx context.Context, playerID uuid.UUID, hp int) error
 	UpdatePlayerMP(ctx context.Context, playerID uuid.UUID, mp int) error
 }

@@ -4,8 +4,12 @@ import MapKit
 final class AppContainer: ObservableObject {
     let mapService: MapService
     let locationService: LocationService
+    let apiBaseURL: URL
+    let useMock: Bool
 
     init(useMock: Bool = AppContainer.defaultUseMock) {
+        self.useMock = useMock
+        self.apiBaseURL = AppConfiguration.apiBaseURL
         if useMock {
             self.mapService = MockMapService(mode: .success, latencyMs: 200, failureRate: 0.0, useFixture: true)
             self.locationService = MockLocationService(
@@ -18,7 +22,7 @@ final class AppContainer: ObservableObject {
                 updateIntervalNanoseconds: 2_000_000_000
             )
         } else {
-            self.mapService = MockMapService(mode: .success, latencyMs: 200, failureRate: 0.0, useFixture: true)
+            self.mapService = RemoteMapService(baseURL: AppConfiguration.apiBaseURL)
             self.locationService = CoreLocationService()
         }
     }

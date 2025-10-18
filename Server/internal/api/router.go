@@ -4,21 +4,27 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 
 	appbattlestage "server/internal/application/battlestage"
 	"server/internal/auth"
 	"server/internal/config"
+	"server/internal/data"
 	domainbattlestage "server/internal/domain/battlestage"
+	"server/internal/domain/entities"
+	"server/internal/domain/game"
 	"server/internal/game/hpmp"
 	"server/internal/infrastructure/repository"
+	"server/internal/session"
 	"server/internal/supabase"
-	"server/internal/data"
 )
 
 // BattleStageFinder はステージ検索ユースケースのインターフェースです。
@@ -32,33 +38,51 @@ func NewRouter(supabaseClient supabase.Client, db *sql.DB, cfg *config.Config) h
 
 	// リポジトリを初期化
 	var userRepo auth.UserRepository
-	var sessionRepo auth.SessionRepository
+	var authSessionRepo auth.SessionRepository
 	var playerRepo hpmp.PlayerRepository
+	var battleSessionRepo session.Repository
 	if db != nil {
 		userRepo = repository.NewUserRepository(db)
-		sessionRepo = repository.NewSessionRepository(db)
+		authSessionRepo = repository.NewSessionRepository(db)
 		playerRepo = repository.NewPlayerRepository(db)
+		battleSessionRepo = repository.NewGameSessionRepository(db)
 	}
 
 	// 認証ハンドラーを初期化
-	authHandler := auth.NewAuthHandler(userRepo, playerRepo, sessionRepo, cfg.Auth.JWTSecret)
+	authHandler := auth.NewAuthHandler(userRepo, playerRepo, authSessionRepo, cfg.Auth.JWTSecret)
 
 	// HP/MPハンドラーを初期化
 	hpmpHandler := hpmp.NewHPMPHandler(playerRepo)
 
+	var sessionManager *session.Manager
+	if battleSessionRepo != nil {
+		sessionManager = session.NewManager(battleSessionRepo)
+	}
+
 	var authMiddleware *auth.AuthMiddleware
-	if sessionRepo != nil {
-		authMiddleware = auth.NewAuthMiddleware(cfg.Auth.JWTSecret, sessionRepo)
+	if authSessionRepo != nil {
+		authMiddleware = auth.NewAuthMiddleware(cfg.Auth.JWTSecret, authSessionRepo)
 	}
 
 	// 基本ハンドラーを初期化
-	handler := &Handler{supabase: supabaseClient, magicTypesPath: "/home/nonroot/magic_types.json",wsUpgrader: websocket.Upgrader{
-        CheckOrigin: func(*http.Request) bool { return true },},}
+	handler := &Handler{
+		supabase:       supabaseClient,
+		magicTypesPath: "/home/nonroot/magic_types.json",
+		sessionManager: sessionManager,
+		sessionRepo:    battleSessionRepo,
+		playerRepo:     playerRepo,
+		config:         cfg,
+	}
 	if cfg != nil {
 		handler.allowedOrigins = cfg.CORS.AllowedOrigins
 	}
 	if len(handler.allowedOrigins) == 0 {
 		handler.allowedOrigins = []string{"*"}
+	}
+	handler.wsUpgrader = websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			return originAllowed(r.Header.Get("Origin"), handler.allowedOrigins)
+		},
 	}
 
 	if supabaseClient != nil && supabaseClient.Ready() {
@@ -92,11 +116,13 @@ func NewRouter(supabaseClient supabase.Client, db *sql.DB, cfg *config.Config) h
 		mux.Handle("/api/hp/update", authMiddleware.RequireAuth(http.HandlerFunc(hpmpHandler.HandleUpdateHP)))
 		mux.Handle("/api/mp", authMiddleware.RequireAuth(http.HandlerFunc(hpmpHandler.HandleGetMP)))
 		mux.Handle("/api/mp/update", authMiddleware.RequireAuth(http.HandlerFunc(hpmpHandler.HandleUpdateMP)))
+		mux.Handle("/api/game_sessions", authMiddleware.RequireAuth(http.HandlerFunc(handler.createGameSession)))
 	} else {
 		mux.HandleFunc("/api/hp", methodNotAllowedHandler)
 		mux.HandleFunc("/api/hp/update", methodNotAllowedHandler)
 		mux.HandleFunc("/api/mp", methodNotAllowedHandler)
 		mux.HandleFunc("/api/mp/update", methodNotAllowedHandler)
+		mux.HandleFunc("/api/game_sessions", methodNotAllowedHandler)
 	}
 
 	return corsMiddleware(cfg.CORS.AllowedOrigins, loggingMiddleware(mux))
@@ -106,6 +132,10 @@ func NewRouter(supabaseClient supabase.Client, db *sql.DB, cfg *config.Config) h
 type Handler struct {
 	supabase       supabase.Client
 	stageFinder    BattleStageFinder
+	sessionManager *session.Manager
+	sessionRepo    session.Repository
+	playerRepo     hpmp.PlayerRepository
+	config         *config.Config
 	allowedOrigins []string
 	magicTypesPath string
 	wsUpgrader     websocket.Upgrader
@@ -229,40 +259,485 @@ func (h *Handler) listBattleStages(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type createSessionRequest struct {
+	StageID          string  `json:"stage_id"`
+	OpponentPlayerID *string `json:"opponent_player_id,omitempty"`
+}
+
+type createSessionResponse struct {
+	SessionID  string          `json:"session_id"`
+	PlayerID   string          `json:"player_id"`
+	OpponentID *string         `json:"opponent_id,omitempty"`
+	StageID    string          `json:"stage_id"`
+	State      *wsStatePayload `json:"state"`
+}
+
+func (h *Handler) createGameSession(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w)
+		return
+	}
+
+	if h.sessionRepo == nil || h.playerRepo == nil {
+		http.Error(w, "session repository not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	userID, ok := auth.GetUserIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "user context missing", http.StatusInternalServerError)
+		return
+	}
+
+	var req createSessionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.StageID == "" {
+		http.Error(w, "stage_id is required", http.StatusBadRequest)
+		return
+	}
+
+	stageID, err := uuid.Parse(req.StageID)
+	if err != nil {
+		http.Error(w, "invalid stage_id", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+	player, err := h.playerRepo.GetPlayerByUserID(ctx, userID)
+	if err != nil {
+		http.Error(w, "player not found", http.StatusNotFound)
+		return
+	}
+
+	// 強制対戦相手が指定されていない場合、同一ステージの待機セッションを検索
+	if (req.OpponentPlayerID == nil || *req.OpponentPlayerID == "") && h.sessionRepo != nil {
+		if sess, _, _, err := h.sessionRepo.FindJoinableSession(ctx, stageID, player.ID); err != nil {
+			http.Error(w, fmt.Sprintf("failed to find joinable session: %v", err), http.StatusInternalServerError)
+			return
+		} else if sess != nil {
+			// 既存セッションに参加
+			newParticipant := session.NewParticipant{
+				PlayerID:  player.ID,
+				Role:      "challenger",
+				InitialHP: player.HP,
+				InitialMP: player.MP,
+			}
+			updatedParts, updatedSnaps, err := h.sessionRepo.AddParticipant(ctx, sess.ID, newParticipant, true)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("failed to join session: %v", err), http.StatusInternalServerError)
+				return
+			}
+			sess, err = h.sessionRepo.GetSession(ctx, sess.ID)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("failed to reload session: %v", err), http.StatusInternalServerError)
+				return
+			}
+			if h.sessionManager != nil {
+				h.sessionManager.RemoveSession(sess.ID)
+			}
+
+			playersState := make(map[uuid.UUID]game.PlayerState, len(updatedParts))
+			for _, part := range updatedParts {
+				snap, ok := updatedSnaps[part.PlayerID]
+				if !ok {
+					continue
+				}
+				playersState[part.PlayerID] = game.PlayerState{Participant: part, Snapshot: snap}
+			}
+
+			state := newStatePayload(game.GameStateSnapshot{Session: *sess, Players: playersState})
+
+			var opponentIDPtr *string
+			for _, part := range updatedParts {
+				if part.PlayerID != player.ID {
+					idStr := part.PlayerID.String()
+					opponentIDPtr = &idStr
+					break
+				}
+			}
+
+			respondJSON(w, http.StatusCreated, createSessionResponse{
+				SessionID:  sess.ID.String(),
+				PlayerID:   player.ID.String(),
+				OpponentID: opponentIDPtr,
+				StageID:    sess.StageID.String(),
+				State:      state,
+			})
+			return
+		}
+	}
+
+	// 強制対戦相手が与えられている場合は即時マッチング、それ以外は待機セッションを新規作成
+	var forcedOpponent *entities.Player
+	if req.OpponentPlayerID != nil && *req.OpponentPlayerID != "" {
+		opponentID, err := uuid.Parse(*req.OpponentPlayerID)
+		if err != nil {
+			http.Error(w, "invalid opponent_player_id", http.StatusBadRequest)
+			return
+		}
+		if opponentID == player.ID {
+			http.Error(w, "opponent must differ from player", http.StatusBadRequest)
+			return
+		}
+		forcedOpponent, err = h.playerRepo.GetPlayerByID(ctx, opponentID)
+		if err != nil {
+			http.Error(w, "opponent player not found", http.StatusNotFound)
+			return
+		}
+	}
+
+	participants := []session.NewParticipant{
+		{
+			PlayerID:  player.ID,
+			Role:      "host",
+			InitialHP: player.HP,
+			InitialMP: player.MP,
+		},
+	}
+
+	if forcedOpponent != nil {
+		participants = append(participants, session.NewParticipant{
+			PlayerID:  forcedOpponent.ID,
+			Role:      "guest",
+			InitialHP: forcedOpponent.HP,
+			InitialMP: forcedOpponent.MP,
+		})
+	}
+
+	sess, metaParticipants, snapshots, err := h.sessionRepo.CreateSession(ctx, stageID, participants)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to create session: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	if h.sessionManager != nil {
+		h.sessionManager.RemoveSession(sess.ID)
+	}
+
+	playersState := make(map[uuid.UUID]game.PlayerState, len(metaParticipants))
+	for _, part := range metaParticipants {
+		snap, ok := snapshots[part.PlayerID]
+		if !ok {
+			continue
+		}
+		playersState[part.PlayerID] = game.PlayerState{Participant: part, Snapshot: snap}
+	}
+
+	state := newStatePayload(game.GameStateSnapshot{Session: *sess, Players: playersState})
+
+	var opponentIDPtr *string
+	if forcedOpponent != nil {
+		idStr := forcedOpponent.ID.String()
+		opponentIDPtr = &idStr
+	}
+
+	respondJSON(w, http.StatusCreated, createSessionResponse{
+		SessionID:  sess.ID.String(),
+		PlayerID:   player.ID.String(),
+		OpponentID: opponentIDPtr,
+		StageID:    sess.StageID.String(),
+		State:      state,
+	})
+}
+
 func (h *Handler) websocket(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		methodNotAllowed(w)
 		return
 	}
 
-	upgrader := websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool {
-			origin := r.Header.Get("Origin")
-			return originAllowed(origin, h.allowedOrigins)
-		},
+	if h.sessionManager == nil {
+		http.Error(w, "session manager not configured", http.StatusServiceUnavailable)
+		return
 	}
 
-	conn, err := upgrader.Upgrade(w, r, nil)
+	sessionParam := r.URL.Query().Get("session_id")
+	playerParam := r.URL.Query().Get("player_id")
+	if sessionParam == "" || playerParam == "" {
+		http.Error(w, "session_id and player_id are required", http.StatusBadRequest)
+		return
+	}
+
+	sessionID, err := uuid.Parse(sessionParam)
+	if err != nil {
+		http.Error(w, "invalid session_id", http.StatusBadRequest)
+		return
+	}
+	playerID, err := uuid.Parse(playerParam)
+	if err != nil {
+		http.Error(w, "invalid player_id", http.StatusBadRequest)
+		return
+	}
+
+	conn, err := h.wsUpgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("websocket upgrade failed: %v", err)
 		http.Error(w, "failed to upgrade connection", http.StatusBadRequest)
 		return
 	}
-	defer conn.Close()
+
+	battle, err := h.sessionManager.AttachConnection(r.Context(), sessionID, playerID, conn)
+	if err != nil {
+		h.writeWSError(conn, "attach_failed", err)
+		_ = conn.Close()
+		return
+	}
+	defer h.sessionManager.DetachConnection(sessionID, playerID)
+
+	if err := conn.WriteJSON(wsServerMessage{Kind: "init", State: newStatePayload(battle.Snapshot())}); err != nil {
+		log.Printf("websocket write error: %v", err)
+		return
+	}
 
 	for {
-		msgType, payload, err := conn.ReadMessage()
-		if err != nil {
+		var incoming wsClientMessage
+		if err := conn.ReadJSON(&incoming); err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				log.Printf("websocket read error: %v", err)
 			}
 			return
 		}
 
-		if err := conn.WriteMessage(msgType, payload); err != nil {
-			log.Printf("websocket write error: %v", err)
+		switch incoming.Kind {
+		case "ping":
+			if err := conn.WriteJSON(wsServerMessage{Kind: "pong"}); err != nil {
+				log.Printf("websocket write error: %v", err)
+				return
+			}
+		case "event":
+			event, err := incoming.toDomainEvent(sessionID, playerID)
+			if err != nil {
+				h.writeWSError(conn, "bad_request", err)
+				continue
+			}
+			event.CreatedAt = time.Now().UTC()
+
+			state, err := h.sessionManager.ApplyEvent(r.Context(), event)
+			if err != nil {
+				h.writeWSError(conn, "apply_failed", err)
+				continue
+			}
+
+			response := wsServerMessage{
+				Kind:  "event",
+				Event: newEventPayload(event),
+				State: newStatePayload(state),
+			}
+			h.broadcast(sessionID, response, uuid.Nil)
+		case "end":
+			state, err := h.sessionManager.FinishSession(r.Context(), sessionID)
+			if err != nil {
+				h.writeWSError(conn, "finish_failed", err)
+				continue
+			}
+
+			response := wsServerMessage{Kind: "end", State: newStatePayload(state)}
+			h.broadcast(sessionID, response, uuid.Nil)
 			return
+		default:
+			h.writeWSError(conn, "unknown_kind", fmt.Errorf("unsupported kind %q", incoming.Kind))
 		}
+	}
+}
+
+func (h *Handler) broadcast(sessionID uuid.UUID, message wsServerMessage, exclude uuid.UUID) {
+	if h.sessionManager == nil {
+		return
+	}
+
+	conns := h.sessionManager.ActiveConnections(sessionID)
+	for playerID, conn := range conns {
+		if exclude != uuid.Nil && playerID == exclude {
+			continue
+		}
+		if err := conn.WriteJSON(message); err != nil {
+			log.Printf("websocket broadcast error: %v", err)
+			h.sessionManager.DetachConnection(sessionID, playerID)
+		}
+	}
+}
+
+func (h *Handler) writeWSError(conn *websocket.Conn, code string, err error) {
+	log.Printf("websocket error [%s]: %v", code, err)
+	msg := wsServerMessage{
+		Kind: "error",
+		Error: &wsErrorPayload{
+			Code:    code,
+			Message: err.Error(),
+		},
+	}
+	if writeErr := conn.WriteJSON(msg); writeErr != nil {
+		log.Printf("websocket error send failed: %v", writeErr)
+	}
+}
+
+type wsClientMessage struct {
+	Kind      string `json:"kind"`
+	SessionID string `json:"session_id,omitempty"`
+	TriggerID string `json:"trigger_id,omitempty"`
+	TargetID  string `json:"target_id,omitempty"`
+	TriggerHP *int   `json:"trigger_hp,omitempty"`
+	TargetHP  *int   `json:"target_hp,omitempty"`
+	TriggerMP *int   `json:"trigger_mp,omitempty"`
+	TargetMP  *int   `json:"target_mp,omitempty"`
+	Category  string `json:"category,omitempty"`
+	EventType string `json:"type,omitempty"`
+}
+
+func (m wsClientMessage) toDomainEvent(sessionID uuid.UUID, defaultTrigger uuid.UUID) (game.Event, error) {
+	event := game.Event{SessionID: sessionID}
+
+	triggerID := defaultTrigger
+	if m.TriggerID != "" {
+		parsed, err := uuid.Parse(m.TriggerID)
+		if err != nil {
+			return game.Event{}, fmt.Errorf("invalid trigger_id: %w", err)
+		}
+		triggerID = parsed
+	}
+	event.TriggerID = triggerID
+
+	if m.TargetID == "" {
+		return game.Event{}, fmt.Errorf("target_id is required")
+	}
+	targetID, err := uuid.Parse(m.TargetID)
+	if err != nil {
+		return game.Event{}, fmt.Errorf("invalid target_id: %w", err)
+	}
+	event.TargetID = targetID
+
+	if m.TriggerHP == nil {
+		return game.Event{}, fmt.Errorf("trigger_hp is required")
+	}
+	if m.TargetHP == nil {
+		return game.Event{}, fmt.Errorf("target_hp is required")
+	}
+	event.TriggerHP = *m.TriggerHP
+	event.TargetHP = *m.TargetHP
+
+	if m.TriggerMP != nil {
+		value := *m.TriggerMP
+		event.TriggerMP = &value
+	}
+	if m.TargetMP != nil {
+		value := *m.TargetMP
+		event.TargetMP = &value
+	}
+
+	if m.Category == "" {
+		return game.Event{}, fmt.Errorf("category is required")
+	}
+	event.Category = game.EventCategory(m.Category)
+
+	if m.EventType == "" {
+		return game.Event{}, fmt.Errorf("type is required")
+	}
+	event.Type = game.EventType(m.EventType)
+
+	return event, nil
+}
+
+type wsServerMessage struct {
+	Kind  string          `json:"kind"`
+	Event *wsEventPayload `json:"event,omitempty"`
+	State *wsStatePayload `json:"state,omitempty"`
+	Error *wsErrorPayload `json:"error,omitempty"`
+	Info  string          `json:"info,omitempty"`
+}
+
+type wsErrorPayload struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+type wsEventPayload struct {
+	SessionID  string    `json:"session_id"`
+	TriggerID  string    `json:"trigger_id"`
+	TargetID   string    `json:"target_id"`
+	TriggerHP  int       `json:"trigger_hp"`
+	TargetHP   int       `json:"target_hp"`
+	TriggerMP  *int      `json:"trigger_mp,omitempty"`
+	TargetMP   *int      `json:"target_mp,omitempty"`
+	Category   string    `json:"category"`
+	Type       string    `json:"type"`
+	OccurredAt time.Time `json:"occurred_at"`
+}
+
+type wsStatePayload struct {
+	SessionID string          `json:"session_id"`
+	StageID   string          `json:"stage_id"`
+	Status    string          `json:"status"`
+	Mode      string          `json:"mode"`
+	StartedAt *time.Time      `json:"started_at,omitempty"`
+	EndedAt   *time.Time      `json:"ended_at,omitempty"`
+	Players   []wsPlayerState `json:"players"`
+}
+
+type wsPlayerState struct {
+	PlayerID       string  `json:"player_id"`
+	Role           string  `json:"role"`
+	HP             int     `json:"hp"`
+	MP             int     `json:"mp"`
+	Stance         *string `json:"stance,omitempty"`
+	LastPositionID *string `json:"last_position_id,omitempty"`
+}
+
+func newEventPayload(event game.Event) *wsEventPayload {
+	payload := &wsEventPayload{
+		SessionID:  event.SessionID.String(),
+		TriggerID:  event.TriggerID.String(),
+		TargetID:   event.TargetID.String(),
+		TriggerHP:  event.TriggerHP,
+		TargetHP:   event.TargetHP,
+		Category:   string(event.Category),
+		Type:       string(event.Type),
+		OccurredAt: event.CreatedAt,
+	}
+	if event.TriggerMP != nil {
+		value := *event.TriggerMP
+		payload.TriggerMP = &value
+	}
+	if event.TargetMP != nil {
+		value := *event.TargetMP
+		payload.TargetMP = &value
+	}
+	return payload
+}
+
+func newStatePayload(snapshot game.GameStateSnapshot) *wsStatePayload {
+	players := make([]wsPlayerState, 0, len(snapshot.Players))
+	for id, state := range snapshot.Players {
+		player := wsPlayerState{
+			PlayerID: id.String(),
+			Role:     state.Participant.Role,
+			HP:       state.Snapshot.HP,
+			MP:       state.Snapshot.MP,
+		}
+		if state.Snapshot.Stance != nil {
+			stance := *state.Snapshot.Stance
+			player.Stance = &stance
+		}
+		if state.Snapshot.LastPositionID != nil {
+			value := state.Snapshot.LastPositionID.String()
+			player.LastPositionID = &value
+		}
+		players = append(players, player)
+	}
+
+	sort.Slice(players, func(i, j int) bool { return players[i].PlayerID < players[j].PlayerID })
+
+	return &wsStatePayload{
+		SessionID: snapshot.Session.ID.String(),
+		StageID:   snapshot.Session.StageID.String(),
+		Status:    string(snapshot.Session.Status),
+		Mode:      snapshot.Session.Mode,
+		StartedAt: snapshot.Session.StartedAt,
+		EndedAt:   snapshot.Session.EndedAt,
+		Players:   players,
 	}
 }
 
@@ -322,21 +797,20 @@ func (h *Handler) protected(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listMagicTypes(w http.ResponseWriter, r *http.Request) {
-    if r.Method != http.MethodGet {
-        methodNotAllowed(w)
-        return
-    }
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w)
+		return
+	}
 
-    list, err := data.LoadMagicTypes(h.magicTypesPath)
-    if err != nil {
-        log.Printf("failed to load magic types: %v", err)
-        http.Error(w, "failed to load magic types", http.StatusInternalServerError)
-        return
-    }
+	list, err := data.LoadMagicTypes(h.magicTypesPath)
+	if err != nil {
+		log.Printf("failed to load magic types: %v", err)
+		http.Error(w, "failed to load magic types", http.StatusInternalServerError)
+		return
+	}
 
-    respondJSON(w, http.StatusOK, list)
+	respondJSON(w, http.StatusOK, list)
 }
-
 
 func corsMiddleware(allowedOrigins []string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -390,18 +864,3 @@ func toBattleStageResponse(stage domainbattlestage.StageWithDistance) battleStag
 		DistanceMeters: stage.DistanceMeters,
 	}
 }
-
-func (h *Handler) handleSessionEventWS(w http.ResponseWriter, r *http.Request) {
-    sessionID := parseUUID(r.URL.Query().Get("session_id"))
-    playerID := parseUUID(r.URL.Query().Get("player_id"))
-
-    conn, err := h.wsUpgrader.Upgrade(w, r, nil)
-    if err != nil { ... }
-
-    battle, err := h.sessionManager.AttachConnection(r.Context(), sessionID, playerID, conn)
-    if err != nil { ... }
-
-    defer h.sessionManager.DetachConnection(sessionID, playerID)
-    // 受信ループ…
-}
-

@@ -163,6 +163,13 @@ struct MapPin: Identifiable, Hashable {
     let id = UUID()
     let title: String
     let coordinate: CLLocationCoordinate2D
+    let sourceID: String?
+
+    init(title: String, coordinate: CLLocationCoordinate2D, sourceID: String? = nil) {
+        self.title = title
+        self.coordinate = coordinate
+        self.sourceID = sourceID
+    }
 
     static func == (lhs: MapPin, rhs: MapPin) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
