@@ -28,6 +28,12 @@ type BattleStageFinder interface {
 // NewRouter はアプリケーションの HTTP ルーティングを初期化します。
 func NewRouter(supabaseClient supabase.Client, db *sql.DB, cfg *config.Config) http.Handler {
 	handler := &Handler{supabase: supabaseClient}
+	if cfg != nil {
+		handler.allowedOrigins = cfg.CORS.AllowedOrigins
+	}
+	if len(handler.allowedOrigins) == 0 {
+		handler.allowedOrigins = []string{"*"}
+	}
 
 	if supabaseClient != nil && supabaseClient.Ready() {
 		repo := repository.NewBattleStageSupabaseRepository(supabaseClient)
@@ -67,14 +73,9 @@ func NewRouter(supabaseClient supabase.Client, db *sql.DB, cfg *config.Config) h
 
 // Handler は HTTP ハンドラ群をまとめます。
 type Handler struct {
-	supabase    supabase.Client
-	stageFinder BattleStageFinder
-}
-
-var wsUpgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
+	supabase       supabase.Client
+	stageFinder    BattleStageFinder
+	allowedOrigins []string
 }
 
 func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
@@ -201,7 +202,14 @@ func (h *Handler) websocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conn, err := wsUpgrader.Upgrade(w, r, nil)
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			origin := r.Header.Get("Origin")
+			return originAllowed(origin, h.allowedOrigins)
+		},
+	}
+
+	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("websocket upgrade failed: %v", err)
 		http.Error(w, "failed to upgrade connection", http.StatusBadRequest)
@@ -223,6 +231,24 @@ func (h *Handler) websocket(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+func originAllowed(origin string, allowedOrigins []string) bool {
+	if len(allowedOrigins) == 0 {
+		return false
+	}
+
+	for _, allowed := range allowedOrigins {
+		if allowed == "*" {
+			return true
+		}
+
+		if origin != "" && allowed == origin {
+			return true
+		}
+	}
+
+	return false
 }
 
 func loggingMiddleware(next http.Handler) http.Handler {
@@ -263,15 +289,7 @@ func corsMiddleware(allowedOrigins []string, next http.Handler) http.Handler {
 		origin := r.Header.Get("Origin")
 
 		// 許可されたオリジンをチェック
-		allowed := false
-		for _, allowedOrigin := range allowedOrigins {
-			if allowedOrigin == "*" || allowedOrigin == origin {
-				allowed = true
-				break
-			}
-		}
-
-		if allowed {
+		if originAllowed(origin, allowedOrigins) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 		}
 
