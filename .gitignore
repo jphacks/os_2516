@@ -4,3 +4,7 @@
 # Xcode user-specific data
 ios/RealFightingGame.xcodeproj/xcuserdata/
 ios/RealFightingGame.xcodeproj/project.xcworkspace/xcuserdata/
+
+ios/.module-cache/
+
+buildServer.json

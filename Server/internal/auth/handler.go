@@ -14,10 +14,17 @@ import (
 	"github.com/google/uuid"
 )
 
+// PlayerRepository はプレイヤーリポジトリのインターフェースです
+type PlayerRepository interface {
+	CreatePlayer(ctx context.Context, player *entities.Player) error
+	GetPlayerByUserID(ctx context.Context, userID uuid.UUID) (*entities.Player, error)
+}
+
 // AuthHandler は認証関連のHTTPハンドラーです
 type AuthHandler struct {
 	appleService *AppleAuthService
 	userRepo     UserRepository
+	playerRepo   PlayerRepository
 	sessionRepo  SessionRepository
 	jwtSecret    string
 }
@@ -39,10 +46,11 @@ type SessionRepository interface {
 }
 
 // NewAuthHandler は新しい認証ハンドラーを作成します
-func NewAuthHandler(appleService *AppleAuthService, userRepo UserRepository, sessionRepo SessionRepository, jwtSecret string) *AuthHandler {
+func NewAuthHandler(appleService *AppleAuthService, userRepo UserRepository, playerRepo PlayerRepository, sessionRepo SessionRepository, jwtSecret string) *AuthHandler {
 	return &AuthHandler{
 		appleService: appleService,
 		userRepo:     userRepo,
+		playerRepo:   playerRepo,
 		sessionRepo:  sessionRepo,
 		jwtSecret:    jwtSecret,
 	}
@@ -97,6 +105,13 @@ func (h *AuthHandler) HandleAppleSignIn(w http.ResponseWriter, r *http.Request) 
 		user = entities.NewUser(claims.Sub, claims.Email, "")
 		if err := h.userRepo.CreateUser(ctx, user); err != nil {
 			http.Error(w, "Failed to create user", http.StatusInternalServerError)
+			return
+		}
+
+		// 新規ユーザーの場合はプレイヤーも作成
+		player := entities.NewPlayer(&user.ID, user.FullName)
+		if err := h.playerRepo.CreatePlayer(ctx, player); err != nil {
+			http.Error(w, "Failed to create player", http.StatusInternalServerError)
 			return
 		}
 	} else {

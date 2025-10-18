@@ -9,10 +9,13 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gorilla/websocket"
+
 	appbattlestage "server/internal/application/battlestage"
-	domainbattlestage "server/internal/domain/battlestage"
 	"server/internal/auth"
 	"server/internal/config"
+	domainbattlestage "server/internal/domain/battlestage"
+	"server/internal/game/hpmp"
 	"server/internal/infrastructure/repository"
 	"server/internal/supabase"
 )
@@ -29,9 +32,11 @@ func NewRouter(supabaseClient supabase.Client, db *sql.DB, cfg *config.Config) h
 	// リポジトリを初期化
 	var userRepo auth.UserRepository
 	var sessionRepo auth.SessionRepository
+	var playerRepo hpmp.PlayerRepository
 	if db != nil {
 		userRepo = repository.NewUserRepository(db)
 		sessionRepo = repository.NewSessionRepository(db)
+		playerRepo = repository.NewPlayerRepository(db)
 	}
 
 	// Apple認証サービスを初期化
@@ -42,13 +47,22 @@ func NewRouter(supabaseClient supabase.Client, db *sql.DB, cfg *config.Config) h
 	)
 
 	// 認証ハンドラーを初期化
-	authHandler := auth.NewAuthHandler(appleService, userRepo, sessionRepo, cfg.Auth.JWTSecret)
+	authHandler := auth.NewAuthHandler(appleService, userRepo, playerRepo, sessionRepo, cfg.Auth.JWTSecret)
+
+	// HP/MPハンドラーを初期化
+	hpmpHandler := hpmp.NewHPMPHandler(playerRepo)
 
 	// 認証ミドルウェアを初期化
 	authMiddleware := auth.NewAuthMiddleware(cfg.Auth.JWTSecret, sessionRepo)
 
 	// 基本ハンドラーを初期化
 	handler := &Handler{supabase: supabaseClient}
+	if cfg != nil {
+		handler.allowedOrigins = cfg.CORS.AllowedOrigins
+	}
+	if len(handler.allowedOrigins) == 0 {
+		handler.allowedOrigins = []string{"*"}
+	}
 
 	if supabaseClient != nil && supabaseClient.Ready() {
 		repo := repository.NewBattleStageSupabaseRepository(supabaseClient)
@@ -60,23 +74,43 @@ func NewRouter(supabaseClient supabase.Client, db *sql.DB, cfg *config.Config) h
 	// ヘルスチェックエンドポイント
 	mux.HandleFunc("/health", handler.health)
 	mux.HandleFunc("/supabase/health", handler.supabaseHealth)
+	mux.HandleFunc("/ws", handler.websocket)
 	mux.HandleFunc("/game", handler.listBattleStages)
 
-	// 認証エンドポイント
-	mux.HandleFunc("/auth/apple/signin", authHandler.HandleAppleSignIn)
-	mux.HandleFunc("/auth/refresh", authHandler.HandleRefresh)
-	mux.HandleFunc("/auth/logout", authHandler.HandleLogout)
+	// 認証関連エンドポイント
+	if db != nil && cfg != nil && cfg.Auth.Enabled {
+		userRepo := repository.NewUserRepository(db)
+		sessionRepo := repository.NewSessionRepository(db)
 
-	// 保護されたエンドポイント（例）
-	mux.Handle("/api/protected", authMiddleware.RequireAuth(http.HandlerFunc(handler.protected)))
+		appleService := auth.NewAppleAuthService(
+			cfg.Auth.AppleClientID,
+			cfg.Auth.AppleTeamID,
+			cfg.Auth.AppleKeyID,
+		)
+
+		authHandler := auth.NewAuthHandler(appleService, userRepo, sessionRepo, cfg.Auth.JWTSecret)
+		authMiddleware := auth.NewAuthMiddleware(cfg.Auth.JWTSecret, sessionRepo)
+
+		mux.HandleFunc("/auth/apple", authHandler.HandleAppleSignIn)
+		mux.HandleFunc("/auth/refresh", authHandler.HandleRefresh)
+		mux.Handle("/auth/logout", authMiddleware.RequireAuth(http.HandlerFunc(authHandler.HandleLogout)))
+		mux.Handle("/protected", authMiddleware.RequireAuth(http.HandlerFunc(handler.protected)))
+	}
+
+	// HP/MP関連のエンドポイント
+	mux.Handle("/api/hp", authMiddleware.RequireAuth(http.HandlerFunc(hpmpHandler.HandleGetHP)))
+	mux.Handle("/api/hp/update", authMiddleware.RequireAuth(http.HandlerFunc(hpmpHandler.HandleUpdateHP)))
+	mux.Handle("/api/mp", authMiddleware.RequireAuth(http.HandlerFunc(hpmpHandler.HandleGetMP)))
+	mux.Handle("/api/mp/update", authMiddleware.RequireAuth(http.HandlerFunc(hpmpHandler.HandleUpdateMP)))
 
 	return corsMiddleware(cfg.CORS.AllowedOrigins, loggingMiddleware(mux))
 }
 
 // Handler は HTTP ハンドラ群をまとめます。
 type Handler struct {
-	supabase    supabase.Client
-	stageFinder BattleStageFinder
+	supabase       supabase.Client
+	stageFinder    BattleStageFinder
+	allowedOrigins []string
 }
 
 func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
@@ -197,6 +231,61 @@ func (h *Handler) listBattleStages(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handler) websocket(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w)
+		return
+	}
+
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			origin := r.Header.Get("Origin")
+			return originAllowed(origin, h.allowedOrigins)
+		},
+	}
+
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("websocket upgrade failed: %v", err)
+		http.Error(w, "failed to upgrade connection", http.StatusBadRequest)
+		return
+	}
+	defer conn.Close()
+
+	for {
+		msgType, payload, err := conn.ReadMessage()
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Printf("websocket read error: %v", err)
+			}
+			return
+		}
+
+		if err := conn.WriteMessage(msgType, payload); err != nil {
+			log.Printf("websocket write error: %v", err)
+			return
+		}
+	}
+}
+
+func originAllowed(origin string, allowedOrigins []string) bool {
+	if len(allowedOrigins) == 0 {
+		return false
+	}
+
+	for _, allowed := range allowedOrigins {
+		if allowed == "*" {
+			return true
+		}
+
+		if origin != "" && allowed == origin {
+			return true
+		}
+	}
+
+	return false
+}
+
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -235,15 +324,7 @@ func corsMiddleware(allowedOrigins []string, next http.Handler) http.Handler {
 		origin := r.Header.Get("Origin")
 
 		// 許可されたオリジンをチェック
-		allowed := false
-		for _, allowedOrigin := range allowedOrigins {
-			if allowedOrigin == "*" || allowedOrigin == origin {
-				allowed = true
-				break
-			}
-		}
-
-		if allowed {
+		if originAllowed(origin, allowedOrigins) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 		}
 

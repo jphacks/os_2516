@@ -1,0 +1,19 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${PORT:-8080}:8080"
+    env_file:
+      - .env
+    environment:
+      AUTH_REQUIRED: "true"
+    restart: unless-stopped
+    # ローカル開発でソースを即反映したい場合は以下をコメントアウト解除
+    # volumes:
+    #   - .:/app
+
+networks:
+  default:
+    name: os2516-network
