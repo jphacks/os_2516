@@ -30,6 +30,12 @@ struct RootView: View {
                     Text("iOS 17 以上でマップ表示に対応")
                         .tabItem { Label("マップ", systemImage: "map.fill") }
                 }
+
+                StageListView(
+                    mapService: container.mapService,
+                    locationService: container.locationService
+                )
+                .tabItem { Label("ステージ", systemImage: "list.bullet") }
             }
             .navigationTitle("Real Fighting Game")
             .toolbar {

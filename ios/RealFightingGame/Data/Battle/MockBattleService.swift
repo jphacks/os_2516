@@ -10,17 +10,20 @@ actor MockBattleService: BattleService {
         public var enemyDamageRange: ClosedRange<Int> = 10...16
         public var specialDamage: Int = 30
         public var specialChargePerTurn: Double = 0.5
+        public var attackManaCost: Int = 5
 
         public init(latencyMs: UInt64 = 300,
                     playerDamageRange: ClosedRange<Int> = 18...22,
                     enemyDamageRange: ClosedRange<Int> = 10...16,
                     specialDamage: Int = 30,
-                    specialChargePerTurn: Double = 0.5) {
+                    specialChargePerTurn: Double = 0.5,
+                    attackManaCost: Int = 5) {
             self.latencyMs = latencyMs
             self.playerDamageRange = playerDamageRange
             self.enemyDamageRange = enemyDamageRange
             self.specialDamage = specialDamage
             self.specialChargePerTurn = specialChargePerTurn
+            self.attackManaCost = attackManaCost
         }
     }
 
@@ -43,7 +46,7 @@ actor MockBattleService: BattleService {
     func join(sessionID: String) async throws -> BattleState {
         // 初期状態: 双方100HP、モックのテレメトリ
         var initial = BattleState(
-            selfStatus: BattleParticipant(displayName: "あなた", hp: 100, maxHp: 100, mana: 50, maxMana: 50),
+            selfStatus: BattleParticipant(displayName: "あなた", hp: 100, maxHp: 100, mana: 10, maxMana: 50),
             opponentStatus: BattleParticipant(displayName: "相手", hp: 100, maxHp: 100, mana: 50, maxMana: 50),
             telemetry: BattleTelemetry(distanceMeters: 10, headingDegrees: 0, lastUpdate: .now),
             chantProgress: 0,
@@ -117,6 +120,16 @@ actor MockBattleService: BattleService {
             for action in pendingActions {
                 switch action {
                 case .attack:
+                    // MP不足なら攻撃は不発（何もしない）
+                    guard current.selfStatus.mana >= config.attackManaCost else { continue }
+                    // MP消費
+                    current.selfStatus = BattleParticipant(
+                        displayName: current.selfStatus.displayName,
+                        hp: current.selfStatus.hp,
+                        maxHp: current.selfStatus.maxHp,
+                        mana: max(0, current.selfStatus.mana - config.attackManaCost),
+                        maxMana: current.selfStatus.maxMana
+                    )
                     let dmg = Int.random(in: config.playerDamageRange)
                     let newEnemyHP = max(0, current.opponentStatus.hp - dmg)
                     current.opponentStatus = BattleParticipant(

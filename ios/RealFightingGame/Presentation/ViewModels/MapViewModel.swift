@@ -40,7 +40,7 @@ final class MapViewModel: ObservableObject {
 
     func loadPins(force: Bool = false) {
         if case .loading = pinsState { return }
-        if case .success = pinsState, !force { /* keep current */ }
+        if case .success = pinsState, !force { return }
 
         loadTask?.cancel()
         pinsState = .loading
@@ -48,13 +48,16 @@ final class MapViewModel: ObservableObject {
             do {
                 let result = try await service.fetchPins(in: region)
                 guard !Task.isCancelled else { return }
+
                 if let userPin = result.userLocation, locationService == nil {
                     self.userLocationPin = userPin
                 }
-                if result.spots.isEmpty {
+
+                let pins = result.spots
+                if pins.isEmpty {
                     self.pinsState = .empty
                 } else {
-                    self.pinsState = .success(result.spots)
+                    self.pinsState = .success(pins)
                 }
             } catch {
                 guard !Task.isCancelled else { return }
@@ -79,7 +82,16 @@ final class MapViewModel: ObservableObject {
                     await MainActor.run {
                         let pin = MapPin(title: "現在地", coordinate: coordinate)
                         self.userLocationPin = pin
-                        // フォロー状態でも自動リセンターしない
+                        if self.isFollowingUser {
+                            self.setRegion(
+                                coordinate,
+                                span: MKCoordinateSpan(
+                                    latitudeDelta: max(0.008, self.region.span.latitudeDelta),
+                                    longitudeDelta: max(0.008, self.region.span.longitudeDelta)
+                                )
+                            )
+                            self.loadPins(force: true)
+                        }
                     }
                 case .failure:
                     continue
@@ -156,13 +168,22 @@ final class MapViewModel: ObservableObject {
             }
         }
     }
-
 }
 
 struct MapPin: Identifiable, Hashable {
-    let id = UUID()
+    let id: UUID
     let title: String
     let coordinate: CLLocationCoordinate2D
+    let stageID: String?
+    let distanceMeters: Double?
+
+    init(id: UUID = UUID(), title: String, coordinate: CLLocationCoordinate2D, stageID: String? = nil, distanceMeters: Double? = nil) {
+        self.id = id
+        self.title = title
+        self.coordinate = coordinate
+        self.stageID = stageID
+        self.distanceMeters = distanceMeters
+    }
 
     static func == (lhs: MapPin, rhs: MapPin) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
