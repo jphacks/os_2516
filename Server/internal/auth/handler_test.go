@@ -15,44 +15,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// MockUserRepository はテスト用のユーザーリポジトリです
-type MockUserRepository struct {
-	users map[string]*entities.User
-}
-
-func NewMockUserRepository() *MockUserRepository {
-	return &MockUserRepository{
-		users: make(map[string]*entities.User),
-	}
-}
-
-func (m *MockUserRepository) CreateUser(ctx context.Context, user *entities.User) error {
-	m.users[user.AppleID] = user
-	return nil
-}
-
-func (m *MockUserRepository) GetUserByAppleID(ctx context.Context, appleID string) (*entities.User, error) {
-	user, exists := m.users[appleID]
-	if !exists {
-		return nil, fmt.Errorf("user not found")
-	}
-	return user, nil
-}
-
-func (m *MockUserRepository) GetUserByID(ctx context.Context, id uuid.UUID) (*entities.User, error) {
-	for _, user := range m.users {
-		if user.ID == id {
-			return user, nil
-		}
-	}
-	return nil, fmt.Errorf("user not found")
-}
-
-func (m *MockUserRepository) UpdateUser(ctx context.Context, user *entities.User) error {
-	m.users[user.AppleID] = user
-	return nil
-}
-
 // MockSessionRepository はテスト用のセッションリポジトリです
 type MockSessionRepository struct {
 	sessions map[string]*entities.Session
@@ -99,8 +61,11 @@ func TestAuthHandler_HandleAppleSignIn(t *testing.T) {
 	// Apple認証サービス（実際の検証は行わない）
 	appleService := NewAppleAuthService("com.test.app", "TEAM123", "KEY123")
 
+	// モックプレイヤーリポジトリを作成
+	playerRepo := NewMockPlayerRepository()
+
 	// 認証ハンドラーを作成
-	handler := NewAuthHandler(appleService, userRepo, sessionRepo, "test-secret")
+	handler := NewAuthHandler(appleService, userRepo, playerRepo, sessionRepo, "test-secret")
 
 	tests := []struct {
 		name           string
@@ -145,8 +110,11 @@ func TestAuthHandler_HandleLogout(t *testing.T) {
 	// Apple認証サービス
 	appleService := NewAppleAuthService("com.test.app", "TEAM123", "KEY123")
 
+	// モックプレイヤーリポジトリを作成
+	playerRepo := NewMockPlayerRepository()
+
 	// 認証ハンドラーを作成
-	handler := NewAuthHandler(appleService, userRepo, sessionRepo, "test-secret")
+	handler := NewAuthHandler(appleService, userRepo, playerRepo, sessionRepo, "test-secret")
 
 	tests := []struct {
 		name           string

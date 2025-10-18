@@ -15,6 +15,7 @@ import (
 	"server/internal/auth"
 	"server/internal/config"
 	domainbattlestage "server/internal/domain/battlestage"
+	"server/internal/game/hpmp"
 	"server/internal/infrastructure/repository"
 	"server/internal/supabase"
 )
@@ -27,6 +28,34 @@ type BattleStageFinder interface {
 
 // NewRouter はアプリケーションの HTTP ルーティングを初期化します。
 func NewRouter(supabaseClient supabase.Client, db *sql.DB, cfg *config.Config) http.Handler {
+
+	// リポジトリを初期化
+	var userRepo auth.UserRepository
+	var sessionRepo auth.SessionRepository
+	var playerRepo hpmp.PlayerRepository
+	if db != nil {
+		userRepo = repository.NewUserRepository(db)
+		sessionRepo = repository.NewSessionRepository(db)
+		playerRepo = repository.NewPlayerRepository(db)
+	}
+
+	// Apple認証サービスを初期化
+	appleService := auth.NewAppleAuthService(
+		cfg.Auth.AppleClientID,
+		cfg.Auth.AppleTeamID,
+		cfg.Auth.AppleKeyID,
+	)
+
+	// 認証ハンドラーを初期化
+	authHandler := auth.NewAuthHandler(appleService, userRepo, playerRepo, sessionRepo, cfg.Auth.JWTSecret)
+
+	// HP/MPハンドラーを初期化
+	hpmpHandler := hpmp.NewHPMPHandler(playerRepo)
+
+	// 認証ミドルウェアを初期化
+	authMiddleware := auth.NewAuthMiddleware(cfg.Auth.JWTSecret, sessionRepo)
+
+	// 基本ハンドラーを初期化
 	handler := &Handler{supabase: supabaseClient}
 	if cfg != nil {
 		handler.allowedOrigins = cfg.CORS.AllowedOrigins
@@ -67,6 +96,12 @@ func NewRouter(supabaseClient supabase.Client, db *sql.DB, cfg *config.Config) h
 		mux.Handle("/auth/logout", authMiddleware.RequireAuth(http.HandlerFunc(authHandler.HandleLogout)))
 		mux.Handle("/protected", authMiddleware.RequireAuth(http.HandlerFunc(handler.protected)))
 	}
+
+	// HP/MP関連のエンドポイント
+	mux.Handle("/api/hp", authMiddleware.RequireAuth(http.HandlerFunc(hpmpHandler.HandleGetHP)))
+	mux.Handle("/api/hp/update", authMiddleware.RequireAuth(http.HandlerFunc(hpmpHandler.HandleUpdateHP)))
+	mux.Handle("/api/mp", authMiddleware.RequireAuth(http.HandlerFunc(hpmpHandler.HandleGetMP)))
+	mux.Handle("/api/mp/update", authMiddleware.RequireAuth(http.HandlerFunc(hpmpHandler.HandleUpdateMP)))
 
 	return corsMiddleware(cfg.CORS.AllowedOrigins, loggingMiddleware(mux))
 }
