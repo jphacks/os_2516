@@ -54,8 +54,14 @@ func main() {
 	cancel()
 	if err != nil {
 		log.Printf("Supabase Postgres client disabled: %v", err)
+	} else if supabaseClient != nil && supabaseClient.Ready() {
+		log.Println("Supabase client connected")
+	} else {
+		log.Println("Supabase client initialised without active connection")
 	}
-	defer supabaseClient.Close()
+	if supabaseClient != nil {
+		defer supabaseClient.Close()
+	}
 
 	// ルーターを初期化（データベース接続を渡す）
 	router := api.NewRouter(supabaseClient, db, cfg)
