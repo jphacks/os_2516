@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -39,6 +40,7 @@ func NewRouter(supabaseClient supabase.Client, db *sql.DB, cfg *config.Config) h
 	mux.HandleFunc("/health", handler.health)
 	mux.HandleFunc("/supabase/health", handler.supabaseHealth)
 	mux.HandleFunc("/ws", handler.websocket)
+	mux.HandleFunc("/game", handler.listBattleStages)
 
 	// 認証関連エンドポイント
 	if db != nil && cfg != nil && cfg.Auth.Enabled {
@@ -112,6 +114,84 @@ func (h *Handler) supabaseHealth(w http.ResponseWriter, r *http.Request) {
 
 	respondJSON(w, http.StatusOK, map[string]string{
 		"status": payload.Status,
+	})
+}
+
+func (h *Handler) listBattleStages(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w)
+		return
+	}
+
+	if h.stageFinder == nil {
+		respondJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"status":  "supabase_unconfigured",
+			"message": "database client not ready",
+		})
+		return
+	}
+
+	query := r.URL.Query()
+	latParam := query.Get("lat")
+	lngParam := query.Get("lng")
+
+	if latParam == "" || lngParam == "" {
+		respondJSON(w, http.StatusBadRequest, map[string]string{
+			"status":  "invalid_request",
+			"message": "query parameters 'lat' and 'lng' are required",
+		})
+		return
+	}
+
+	latitude, err := strconv.ParseFloat(latParam, 64)
+	if err != nil {
+		respondJSON(w, http.StatusBadRequest, map[string]string{
+			"status":  "invalid_latitude",
+			"message": "unable to parse 'lat' as float",
+		})
+		return
+	}
+
+	longitude, err := strconv.ParseFloat(lngParam, 64)
+	if err != nil {
+		respondJSON(w, http.StatusBadRequest, map[string]string{
+			"status":  "invalid_longitude",
+			"message": "unable to parse 'lng' as float",
+		})
+		return
+	}
+
+	if latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180 {
+		respondJSON(w, http.StatusBadRequest, map[string]string{
+			"status":  "invalid_coordinates",
+			"message": "latitude must be between -90 and 90, longitude between -180 and 180",
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+
+	results, err := h.stageFinder.Execute(ctx, domainbattlestage.Location{
+		Latitude:  latitude,
+		Longitude: longitude,
+	})
+	if err != nil {
+		respondJSON(w, http.StatusBadGateway, map[string]string{
+			"status":  "supabase_query_failed",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	payload := make([]battleStageResponse, 0, len(results))
+	for _, result := range results {
+		payload = append(payload, toBattleStageResponse(result))
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{
+		"battleStages": payload,
+		"radiusMeters": h.stageFinder.SearchRadius(),
 	})
 }
 
