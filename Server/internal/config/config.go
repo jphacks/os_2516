@@ -100,22 +100,3 @@ func getEnvBool(key string, defaultValue bool) bool {
 		return defaultValue
 	}
 }
-
-func (a *AuthConfig) missingFields() []string {
-	var missing []string
-
-	if a.JWTSecret == "" {
-		missing = append(missing, "JWT_SECRET")
-	}
-	if a.AppleClientID == "" {
-		missing = append(missing, "APPLE_CLIENT_ID")
-	}
-	if a.AppleTeamID == "" {
-		missing = append(missing, "APPLE_TEAM_ID")
-	}
-	if a.AppleKeyID == "" {
-		missing = append(missing, "APPLE_KEY_ID")
-	}
-
-	return missing
-}
