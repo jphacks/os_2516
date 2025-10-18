@@ -390,3 +390,18 @@ func toBattleStageResponse(stage domainbattlestage.StageWithDistance) battleStag
 		DistanceMeters: stage.DistanceMeters,
 	}
 }
+
+func (h *Handler) handleSessionEventWS(w http.ResponseWriter, r *http.Request) {
+    sessionID := parseUUID(r.URL.Query().Get("session_id"))
+    playerID := parseUUID(r.URL.Query().Get("player_id"))
+
+    conn, err := h.wsUpgrader.Upgrade(w, r, nil)
+    if err != nil { ... }
+
+    battle, err := h.sessionManager.AttachConnection(r.Context(), sessionID, playerID, conn)
+    if err != nil { ... }
+
+    defer h.sessionManager.DetachConnection(sessionID, playerID)
+    // 受信ループ…
+}
+
