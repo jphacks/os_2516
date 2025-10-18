@@ -359,5 +359,17 @@ func (h *AuthHandler) ensureDependencies(w http.ResponseWriter, r *http.Request)
 
 func (h *AuthHandler) respondError(w http.ResponseWriter, r *http.Request, status int, clientMessage string, err error) {
 	log.Printf("auth: %s %s -> status=%d message=%s error=%v", r.Method, r.URL.Path, status, clientMessage, err)
-	http.Error(w, clientMessage, status)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+
+	response := map[string]string{
+		"message": clientMessage,
+	}
+	if err != nil {
+		response["error"] = err.Error()
+	}
+
+	if encodeErr := json.NewEncoder(w).Encode(response); encodeErr != nil {
+		log.Printf("auth: failed to encode error response: %v", encodeErr)
+	}
 }

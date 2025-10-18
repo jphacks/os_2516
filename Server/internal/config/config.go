@@ -105,3 +105,13 @@ func getEnvBool(key string, defaultValue bool) bool {
 		return defaultValue
 	}
 }
+
+func (a *AuthConfig) missingFields() []string {
+	var missing []string
+
+	if a.JWTSecret == "" {
+		missing = append(missing, "JWT_SECRET")
+	}
+
+	return missing
+}
