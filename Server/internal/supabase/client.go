@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -15,6 +16,7 @@ import (
 type Client interface {
 	Ready() bool
 	Health(ctx context.Context) (*HealthResponse, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	Close()
 }
 
@@ -96,6 +98,14 @@ func (c *pgClient) Health(ctx context.Context) (*HealthResponse, error) {
 	return &HealthResponse{Status: "ok"}, nil
 }
 
+// Query は Supabase に対する任意クエリ実行を提供します。
+func (c *pgClient) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	if c.pool == nil {
+		return nil, errors.New("supabase pool not initialised")
+	}
+	return c.pool.Query(ctx, sql, args...)
+}
+
 // Close は接続プールを解放します。
 func (c *pgClient) Close() {
 	if c.pool != nil {
@@ -110,6 +120,11 @@ func (c *noopClient) Ready() bool {
 
 // Health は noop クライアントでは設定不足エラーを返します。
 func (c *noopClient) Health(context.Context) (*HealthResponse, error) {
+	return nil, c.err
+}
+
+// Query は noop クライアントでは設定不足エラーを返します。
+func (c *noopClient) Query(context.Context, string, ...any) (pgx.Rows, error) {
 	return nil, c.err
 }
 

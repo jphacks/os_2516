@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"log"
 	"net/http"
@@ -11,13 +12,43 @@ import (
 	"time"
 
 	"server/internal/api"
+	"server/internal/config"
 	"server/internal/supabase"
+
+	_ "github.com/lib/pq" // PostgreSQL driver
 )
 
 func main() {
+	if err := config.LoadEnvFiles(".env", "../.env"); err != nil {
+		log.Printf("failed to load env file: %v", err)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// 設定を読み込み
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	// データベース接続を初期化
+	var db *sql.DB
+	if cfg.Database.URL != "" {
+		db, err = sql.Open("postgres", cfg.Database.URL)
+		if err != nil {
+			log.Fatalf("Failed to connect to database: %v", err)
+		}
+		defer db.Close()
+
+		// データベース接続をテスト
+		if err := db.Ping(); err != nil {
+			log.Fatalf("Failed to ping database: %v", err)
+		}
+		log.Println("Database connection established")
+	}
+
+	// Supabaseクライアントを初期化
 	startupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	supabaseClient, err := supabase.NewClientFromEnv(startupCtx)
 	cancel()
@@ -26,7 +57,8 @@ func main() {
 	}
 	defer supabaseClient.Close()
 
-	router := api.NewRouter(supabaseClient)
+	// ルーターを初期化（データベース接続を渡す）
+	router := api.NewRouter(supabaseClient, db, cfg)
 
 	port := os.Getenv("PORT")
 	if port == "" {

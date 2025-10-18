@@ -53,6 +53,8 @@
 | id | UUID | PK | プレイヤー識別子 |
 | user_id | UUID | UNIQUE, FK -> users.id | 紐付くユーザー（ゲストは NULL 可） |
 | display_name | TEXT | NOT NULL | 表示名（重複許容） |
+| hp | SMALLINT | NOT NULL DEFAULT 100 | 基本HP（初期値） |
+| mp | SMALLINT | NOT NULL DEFAULT 100 | 基本MP（初期値） |
 | rank | SMALLINT | DEFAULT 0 | 内部レーティング指標 |
 | avatar_url | TEXT |  | アバター画像パス |
 | created_at | TIMESTAMPTZ | DEFAULT now() | 登録日時 |
@@ -65,13 +67,24 @@
 | title | TEXT |  | 任意タイトル |
 | mode | TEXT | NOT NULL | `duel` などモード種別 |
 | status | TEXT | NOT NULL | `preparing` `active` `finished` 等 |
-| arena_lat | NUMERIC(9,6) |  | 開催エリア緯度 |
-| arena_lng | NUMERIC(9,6) |  | 開催エリア経度 |
+| battle_stage_id | UUID | FK -> battle_stages.id | 使用ステージ |
 | started_at | TIMESTAMPTZ |  | 開始時刻 |
 | ended_at | TIMESTAMPTZ |  | 終了時刻 |
 | winner_user_id | UUID | FK -> game_users.id | 勝者参加ユーザー（引き分けは NULL） |
 | result_summary | JSONB |  | 勝敗やスコアのサマリ（チーム戦拡張用） |
 | referee_note | TEXT |  | 裁定メモ |
+
+### battle_stages — 対戦ステージ
+| カラム | 型 | 制約 | 説明 |
+| --- | --- | --- | --- |
+| id | UUID | PK | ステージ識別子 |
+| name | TEXT | NOT NULL | ステージ名 |
+| latitude | NUMERIC(9,6) | NOT NULL | 緯度 |
+| longitude | NUMERIC(9,6) | NOT NULL | 経度 |
+| radius_m | NUMERIC(6,2) |  | 有効範囲半径（メートル） |
+| description | TEXT |  | 補足説明 |
+| created_at | TIMESTAMPTZ | DEFAULT now() | 登録日時 |
+| updated_at | TIMESTAMPTZ | DEFAULT now() | 更新日時 |
 
 ### game_users — セッション参加ユーザー
 | カラム | 型 | 制約 | 説明 |
@@ -174,4 +187,5 @@
 - `player_state_snapshots` はアプリ層キャッシュ＋サーバ更新で整合性を維持します。
 - Apple Sign in 用の `apple_sub` は不変なので主キーではなく UNIQUE 制約で保持し、ユーザー退会時は `users.is_active` とセッション無効化で対応します。
 - `game_event_category` と `game_event_type` は PostgreSQL ENUM として管理し、拡張時は `ALTER TYPE ... ADD VALUE` を用います。
+- ステージ情報は `battle_stages` に集約し、ロケーション更新はステージ更新かセッション単位の `result_summary` 補足に記録します。
 - ルールコードやペナルティ種別拡張時は `rule_definitions` テーブルを追加して管理できます。
