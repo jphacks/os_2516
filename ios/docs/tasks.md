@@ -2,6 +2,48 @@
 
 目的: SwiftUI + MVVM 構成でMap/Battle機能をモック先行で実装し、API準備後は最小差分で切替可能にする。
 
+## P0: MVP 優先タスク（今スプリントで完了）
+- [ ] 共通/モック基盤
+  - [ ] `MapService` 定義（`RealFightingGame/Data/Map/MapService.swift`）
+  - [ ] `MockMapService` 実装（`mode/latencyMs` 付き）
+  - [ ] DI 切替（`#if DEBUG` または `USE_MOCK=1`）
+  - [ ] （任意）`Resources/Fixtures/pins.json` を用意
+- [ ] 通信（WebSocket）最小
+  - [ ] `WebSocketClient`（`RealFightingGame/Data/Network/WebSocketClient.swift`）接続/送受信/再接続（1s→2s→4s）
+  - [ ] 心拍 `ping` 送信（例: 15s 間隔）と `pong` 検知で接続健全性判定
+  - [ ] DTO 定義（`RealFightingGame/Data/Battle/Events.swift`）：`join`/`action`/`state`/`ping`
+  - [ ] `BattleService` 最小実装でWS経由の `join`・`action`・`state` を仲介
+  - [ ] ログ最小化（OSLog）とデバッグトグル
+- [ ] Map（表示/状態/参加導線）
+  - [ ] `Map(position:content:)` と `Binding<MapCameraPosition>` の同期（`MapView.swift`）
+  - [ ] `Marker` でピン表示（`MapViewModel.destinations`）
+  - [ ] `ViewState<[MapPin]>` による `loading/success/failure` 切替
+  - [ ] `loadPins()` 実装（`async/await`、キャンセル安全）
+  - [ ] リージョン変更のデバウンス（目安 500ms）
+  - [ ] 位置権限/現在地表示（`Info.plist` 文言追加）
+  - [ ] `LocationService` プロトコル＋`MockLocationService`（東京駅近傍を返す）
+  - [ ] 参加可能距離の判定＋「参加」ボタン表示（例: 100m 以内）
+  - [ ] 参加ボタン→`BattleView` へ遷移（同時に `WebSocketClient` へ `join`）
+- [ ] Battle（最小フロー）
+  - [ ] `BattleView` 最小レイアウト（HP/行動ボタン）
+  - [ ] `BattleViewModel`（攻撃1種・HP減算・ターン進行の最小実装）
+  - [ ] `MockBattleService`（ローカル進行）＋`BattleService`（WS受信 `state` を反映）
+  - [ ] 結果画面（勝敗/再戦ボタン）
+- [ ] テスト
+  - [ ] `MapViewModelTests`（success/empty/error/キャンセル）
+  - [ ] `BattleViewModelTests`（ダメージ計算と進行）
+  - [ ] `WebSocketClientTests`（再接続バックオフ、`join/action/state/ping` マッピング）
+  - [ ] 簡易スナップショット or UITest（主要分岐）
+
+### MVP 受け入れ条件
+- [ ] `USE_MOCK=1` で起動し、東京駅付近に初期フォーカス＋ピン表示
+- [ ] 現在地が参加距離内になると「参加」ボタンが表示される
+- [ ] 2台（実機またはシミュレータ）で同一セッションに `join` できる
+- [ ] 片方の `action` がもう一方の画面状態に反映される（`state` 受信）
+- [ ] 参加→バトル→結果表示まで一連の流れが成立
+- [ ] エラー時にメッセージとリトライが機能
+- [ ] `xcodebuild test` がグリーン
+
 ## M0: モック先行セットアップ（共通）
 - [ ] プロトコル定義で抽象化
   - [ ] `MapService` / `BattleService` をそれぞれ `RealFightingGame/Data/...` に作成
@@ -130,3 +172,41 @@
 ## 受け入れ条件（Battle抜粋）
 - [ ] 対戦開始→行動選択→結果反映の一連が破綻なく動作
 - [ ] レイテンシ/切断発生時でもリトライ・再同期が可能
+
+---
+
+## P1: 計画同期タスク（plan.md 反映・MVP後）
+
+### 認証基盤
+- [ ] Sign in with Apple 実装（`AuthenticationServices`）
+- [ ] トークン取得・保存（Keychain）・更新ポリシー
+- [ ] API/WS へのトークン添付、失効時の再認証フロー
+
+### ネットワーク/WS 基盤
+- [ ] `NetworkService` プロトコルと `APIClient` 強化（タイムアウト/リトライ/バックオフ/ログ）
+- [ ] WebSocket クライアント（接続/送受信/再接続・バックオフ/心拍）
+- [ ] `game-event` / `result` の DTO とスキーマ定義（送受マッピング）
+
+### センサー・測位
+- [ ] CoreMotion + Pedometer で走行判定（まずはモック→実機検証）
+- [ ] Nearby Interaction（UWB）検証コードと権限ハンドリング
+- [ ] 非対応端末向け fallback（GPS + コンパス）調査と実装
+- [ ] 位置権限のフロー・エラーハンドリング見直し
+
+### マップ/参加導線の強化
+- [ ] 参加可能距離の閾値確定（例: 100m）とテレメトリ取得
+- [ ] 参加ボタンの状態管理（距離外/権限未許可/通信エラー）
+- [ ] レーダー UI プロトタイプ（Battle への誘導）
+
+### リザルト/フロー
+- [ ] `/result` DTO と API 連携（結果取得・再戦導線）
+- [ ] End フラグ送信失敗時のリトライポリシー
+
+### 演出
+- [ ] ハプティクスプリセット（攻撃/被弾/詠唱完了）の適用
+- [ ] サウンド再生インフラ（`AVAudioSession` 設定、効果音の再生）
+
+### ログ/テスト強化
+- [ ] デバッグ用イベントログ保存（OSLog/ファイル）
+- [ ] `NetworkService` / WebSocket のテストダブルと結合テスト
+- [ ] 距離計算・認証・権限フローのユニット/UITest 追加
