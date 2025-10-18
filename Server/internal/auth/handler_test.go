@@ -13,6 +13,7 @@ import (
 	"server/internal/domain/entities"
 
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // MockSessionRepository はテスト用のセッションリポジトリです
@@ -53,68 +54,111 @@ func (m *MockSessionRepository) DeleteExpiredSessions(ctx context.Context) error
 	return nil
 }
 
-func TestAuthHandler_HandleAppleSignIn(t *testing.T) {
-	// モックリポジトリを作成
+func TestAuthHandler_HandleSignUp_Success(t *testing.T) {
 	userRepo := NewMockUserRepository()
 	sessionRepo := NewMockSessionRepository()
-
-	// Apple認証サービス（実際の検証は行わない）
-	appleService := NewAppleAuthService("com.test.app", "TEAM123", "KEY123")
-
-	// モックプレイヤーリポジトリを作成
 	playerRepo := NewMockPlayerRepository()
+	handler := NewAuthHandler(userRepo, playerRepo, sessionRepo, "test-secret")
 
-	// 認証ハンドラーを作成
-	handler := NewAuthHandler(appleService, userRepo, playerRepo, sessionRepo, "test-secret")
-
-	tests := []struct {
-		name           string
-		requestBody    SignInRequest
-		expectedStatus int
-	}{
-		{
-			name: "missing id_token",
-			requestBody: SignInRequest{
-				IDToken: "",
-			},
-			expectedStatus: http.StatusUnauthorized,
-		},
+	reqBody := SignUpRequest{
+		Email:    "NewUser@example.com",
+		Password: "Passw0rd!",
+		FullName: "New User",
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// リクエストボディを作成
-			body, _ := json.Marshal(tt.requestBody)
-			req := httptest.NewRequest(http.MethodPost, "/auth/apple/signin", bytes.NewBuffer(body))
-			req.Header.Set("Content-Type", "application/json")
+	body, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest(http.MethodPost, "/auth/signup", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
 
-			// レスポンスレコーダーを作成
-			w := httptest.NewRecorder()
+	w := httptest.NewRecorder()
+	handler.HandleSignUp(w, req)
 
-			// ハンドラーを実行
-			handler.HandleAppleSignIn(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d", http.StatusCreated, w.Code)
+	}
 
-			// ステータスコードを確認
-			if w.Code != tt.expectedStatus {
-				t.Errorf("Expected status %d, got %d", tt.expectedStatus, w.Code)
-			}
-		})
+	var resp SignInResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if resp.AccessToken == "" {
+		t.Error("expected access token in response")
+	}
+
+	if resp.User == nil || resp.User.Email != "newuser@example.com" {
+		t.Errorf("expected user email to be normalized, got %+v", resp.User)
+	}
+
+	storedUser, err := userRepo.GetUserByEmail(context.Background(), "newuser@example.com")
+	if err != nil {
+		t.Fatalf("expected user stored, got error: %v", err)
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(storedUser.PasswordHash), []byte("Passw0rd!")); err != nil {
+		t.Fatalf("stored password hash does not match original password: %v", err)
 	}
 }
 
-func TestAuthHandler_HandleLogout(t *testing.T) {
-	// モックリポジトリを作成
+func TestAuthHandler_HandleSignIn(t *testing.T) {
 	userRepo := NewMockUserRepository()
 	sessionRepo := NewMockSessionRepository()
-
-	// Apple認証サービス
-	appleService := NewAppleAuthService("com.test.app", "TEAM123", "KEY123")
-
-	// モックプレイヤーリポジトリを作成
 	playerRepo := NewMockPlayerRepository()
+	handler := NewAuthHandler(userRepo, playerRepo, sessionRepo, "test-secret")
 
-	// 認証ハンドラーを作成
-	handler := NewAuthHandler(appleService, userRepo, playerRepo, sessionRepo, "test-secret")
+	hashed, err := bcrypt.GenerateFromPassword([]byte("Passw0rd!"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("failed to hash password: %v", err)
+	}
+
+	user := entities.NewUser("existing@example.com", string(hashed), "Existing User")
+	if err := userRepo.CreateUser(context.Background(), user); err != nil {
+		t.Fatalf("failed to create user: %v", err)
+	}
+
+	t.Run("successful sign in", func(t *testing.T) {
+		reqBody := SignInRequest{Email: "existing@example.com", Password: "Passw0rd!"}
+		body, _ := json.Marshal(reqBody)
+		req := httptest.NewRequest(http.MethodPost, "/auth/signin", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		w := httptest.NewRecorder()
+		handler.HandleSignIn(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected status %d, got %d", http.StatusOK, w.Code)
+		}
+
+		var resp SignInResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+
+		if resp.AccessToken == "" {
+			t.Error("expected access token in response")
+		}
+	})
+
+	t.Run("invalid password", func(t *testing.T) {
+		reqBody := SignInRequest{Email: "existing@example.com", Password: "wrong"}
+		body, _ := json.Marshal(reqBody)
+		req := httptest.NewRequest(http.MethodPost, "/auth/signin", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		w := httptest.NewRecorder()
+		handler.HandleSignIn(w, req)
+
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, w.Code)
+		}
+	})
+}
+
+func TestAuthHandler_HandleLogout(t *testing.T) {
+	userRepo := NewMockUserRepository()
+	sessionRepo := NewMockSessionRepository()
+	playerRepo := NewMockPlayerRepository()
+	handler := NewAuthHandler(userRepo, playerRepo, sessionRepo, "test-secret")
 
 	tests := []struct {
 		name           string
@@ -145,7 +189,7 @@ func TestAuthHandler_HandleLogout(t *testing.T) {
 			handler.HandleLogout(w, req)
 
 			if w.Code != tt.expectedStatus {
-				t.Errorf("Expected status %d, got %d", tt.expectedStatus, w.Code)
+				t.Errorf("expected status %d, got %d", tt.expectedStatus, w.Code)
 			}
 		})
 	}
@@ -160,14 +204,14 @@ func TestAuthHandler_GenerateAccessToken(t *testing.T) {
 	token, expiresAt, err := handler.generateAccessToken(userID)
 
 	if err != nil {
-		t.Fatalf("Expected no error, got %v", err)
+		t.Fatalf("expected no error, got %v", err)
 	}
 
 	if token == "" {
-		t.Error("Expected non-empty token")
+		t.Error("expected non-empty token")
 	}
 
 	if time.Until(expiresAt) < 23*time.Hour {
-		t.Error("Expected token to be valid for at least 23 hours")
+		t.Error("expected token to be valid for at least 23 hours")
 	}
 }

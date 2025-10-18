@@ -1,18 +1,20 @@
 # Server サービス概要
 
-Go 製のREST API です。Apple Sign In認証機能とリアルタイム格闘ゲームのバックエンド機能を提供し、Cloud Run 上で稼働することを前提にしています。
+Go 製のREST API です。メールアドレスとパスワードによる認証機能とリアルタイム格闘ゲームのバックエンド機能を提供し、Cloud Run 上で稼働することを前提にしています。
 
 ## 機能
 
 ### 認証機能
-- Apple Sign In認証
+- メールアドレス／パスワード認証
 - JWT トークンベースのセッション管理
 - 認証ミドルウェアによるエンドポイント保護
 
 ### API エンドポイント
 - `/health` - ヘルスチェック
 - `/supabase/health` - Supabase接続確認
-- `/auth/apple` - Apple Sign In
+- `/auth/signup` - 新規登録
+- `/auth/signin` - サインイン
+
 - `/auth/refresh` - トークンリフレッシュ
 - `/auth/logout` - ログアウト
 - `/api/protected` - 認証が必要なエンドポイント（例）
@@ -27,9 +29,6 @@ Go 製のREST API です。Apple Sign In認証機能とリアルタイム格闘�
 
 ### 認証設定
 - `JWT_SECRET`: JWT署名用の秘密鍵
-- `APPLE_CLIENT_ID`: Apple Developer のクライアントID
-- `APPLE_TEAM_ID`: Apple Developer のチームID
-- `APPLE_KEY_ID`: Apple Developer のキーID
 
 ### セキュリティ設定
 - `CORS_ALLOWED_ORIGINS`: 許可するオリジン（カンマ区切り）
@@ -49,9 +48,6 @@ psql $DATABASE_URL -f migrations/001_create_auth_tables.sql
 cd Server
 # 環境変数を設定
 export JWT_SECRET="your-secret-key"
-export APPLE_CLIENT_ID="com.yourcompany.yourapp"
-export APPLE_TEAM_ID="your-team-id"
-export APPLE_KEY_ID="your-key-id"
 export DATABASE_URL="postgres://username:password@localhost:5432/database_name"
 
 # サーバーを起動

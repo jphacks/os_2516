@@ -39,15 +39,8 @@ func NewRouter(supabaseClient supabase.Client, db *sql.DB, cfg *config.Config) h
 		playerRepo = repository.NewPlayerRepository(db)
 	}
 
-	// Apple認証サービスを初期化
-	appleService := auth.NewAppleAuthService(
-		cfg.Auth.AppleClientID,
-		cfg.Auth.AppleTeamID,
-		cfg.Auth.AppleKeyID,
-	)
-
 	// 認証ハンドラーを初期化
-	authHandler := auth.NewAuthHandler(appleService, userRepo, playerRepo, sessionRepo, cfg.Auth.JWTSecret)
+	authHandler := auth.NewAuthHandler(userRepo, playerRepo, sessionRepo, cfg.Auth.JWTSecret)
 
 	// HP/MPハンドラーを初期化
 	hpmpHandler := hpmp.NewHPMPHandler(playerRepo)
@@ -77,6 +70,11 @@ func NewRouter(supabaseClient supabase.Client, db *sql.DB, cfg *config.Config) h
 	mux.HandleFunc("/ws", handler.websocket)
 	mux.HandleFunc("/game", handler.listBattleStages)
 
+	// 認証エンドポイント
+	mux.HandleFunc("/auth/signup", authHandler.HandleSignUp)
+	mux.HandleFunc("/auth/signin", authHandler.HandleSignIn)
+	mux.HandleFunc("/auth/refresh", authHandler.HandleRefresh)
+	mux.HandleFunc("/auth/logout", authHandler.HandleLogout)
 	// 認証関連エンドポイント
 	if db != nil && cfg != nil && cfg.Auth.Enabled {
 		userRepo := repository.NewUserRepository(db)

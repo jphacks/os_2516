@@ -23,14 +23,14 @@ func NewUserRepository(db *sql.DB) *UserRepositoryImpl {
 // CreateUser は新しいユーザーを作成します
 func (r *UserRepositoryImpl) CreateUser(ctx context.Context, user *entities.User) error {
 	query := `
-		INSERT INTO users (id, apple_id, email, full_name, created_at, updated_at)
+		INSERT INTO users (id, email, password_hash, full_name, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6)
 	`
 
 	_, err := r.db.ExecContext(ctx, query,
 		user.ID,
-		user.AppleID,
 		user.Email,
+		user.PasswordHash,
 		user.FullName,
 		user.CreatedAt,
 		user.UpdatedAt,
@@ -43,19 +43,19 @@ func (r *UserRepositoryImpl) CreateUser(ctx context.Context, user *entities.User
 	return nil
 }
 
-// GetUserByAppleID はApple IDでユーザーを取得します
-func (r *UserRepositoryImpl) GetUserByAppleID(ctx context.Context, appleID string) (*entities.User, error) {
+// GetUserByEmail はメールアドレスでユーザーを取得します
+func (r *UserRepositoryImpl) GetUserByEmail(ctx context.Context, email string) (*entities.User, error) {
 	query := `
-		SELECT id, apple_id, email, full_name, created_at, updated_at
+		SELECT id, email, password_hash, full_name, created_at, updated_at
 		FROM users
-		WHERE apple_id = $1
+		WHERE email = $1
 	`
 
 	var user entities.User
-	err := r.db.QueryRowContext(ctx, query, appleID).Scan(
+	err := r.db.QueryRowContext(ctx, query, email).Scan(
 		&user.ID,
-		&user.AppleID,
 		&user.Email,
+		&user.PasswordHash,
 		&user.FullName,
 		&user.CreatedAt,
 		&user.UpdatedAt,
@@ -65,7 +65,7 @@ func (r *UserRepositoryImpl) GetUserByAppleID(ctx context.Context, appleID strin
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("user not found")
 		}
-		return nil, fmt.Errorf("failed to get user by apple id: %w", err)
+		return nil, fmt.Errorf("failed to get user by email: %w", err)
 	}
 
 	return &user, nil
@@ -74,7 +74,7 @@ func (r *UserRepositoryImpl) GetUserByAppleID(ctx context.Context, appleID strin
 // GetUserByID はIDでユーザーを取得します
 func (r *UserRepositoryImpl) GetUserByID(ctx context.Context, id uuid.UUID) (*entities.User, error) {
 	query := `
-		SELECT id, apple_id, email, full_name, created_at, updated_at
+		SELECT id, email, password_hash, full_name, created_at, updated_at
 		FROM users
 		WHERE id = $1
 	`
@@ -82,8 +82,8 @@ func (r *UserRepositoryImpl) GetUserByID(ctx context.Context, id uuid.UUID) (*en
 	var user entities.User
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&user.ID,
-		&user.AppleID,
 		&user.Email,
+		&user.PasswordHash,
 		&user.FullName,
 		&user.CreatedAt,
 		&user.UpdatedAt,
