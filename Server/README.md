@@ -24,7 +24,7 @@ Go 製のREST API です。メールアドレスとパスワードによる認�
 
 ### 基本設定
 - `PORT`: ローカル起動時に使用するポート（Cloud Run では自動設定）
-- `DATABASE_URL`: PostgreSQL への接続文字列
+- `DATABASE_URL`: PostgreSQL への接続文字列（設定がなければ `SUPABASE_DB_URL` を自動的に利用）
 - `SUPABASE_DB_URL`: Supabase Postgres への接続文字列（Secret Manager 連携を推奨）
 
 ### 認証設定

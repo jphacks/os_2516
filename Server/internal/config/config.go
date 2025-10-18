@@ -41,7 +41,12 @@ func Load() (*Config, error) {
 			Port: getEnv("PORT", "8080"),
 		},
 		Database: DatabaseConfig{
-			URL: getEnv("DATABASE_URL", ""),
+			URL: func() string {
+				if url := getEnv("DATABASE_URL", ""); url != "" {
+					return url
+				}
+				return getEnv("SUPABASE_DB_URL", "")
+			}(),
 		},
 		Auth: AuthConfig{
 			JWTSecret: getEnv("JWT_SECRET", ""),
