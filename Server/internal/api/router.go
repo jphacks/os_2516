@@ -6,15 +6,14 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/gorilla/websocket"
 
 	appbattlestage "server/internal/application/battlestage"
-	domainbattlestage "server/internal/domain/battlestage"
 	"server/internal/auth"
 	"server/internal/config"
+	domainbattlestage "server/internal/domain/battlestage"
 	"server/internal/infrastructure/repository"
 	"server/internal/supabase"
 )
@@ -27,29 +26,6 @@ type BattleStageFinder interface {
 
 // NewRouter はアプリケーションの HTTP ルーティングを初期化します。
 func NewRouter(supabaseClient supabase.Client, db *sql.DB, cfg *config.Config) http.Handler {
-
-	// リポジトリを初期化
-	var userRepo auth.UserRepository
-	var sessionRepo auth.SessionRepository
-	if db != nil {
-		userRepo = repository.NewUserRepository(db)
-		sessionRepo = repository.NewSessionRepository(db)
-	}
-
-	// Apple認証サービスを初期化
-	appleService := auth.NewAppleAuthService(
-		cfg.Auth.AppleClientID,
-		cfg.Auth.AppleTeamID,
-		cfg.Auth.AppleKeyID,
-	)
-
-	// 認証ハンドラーを初期化
-	authHandler := auth.NewAuthHandler(appleService, userRepo, sessionRepo, cfg.Auth.JWTSecret)
-
-	// 認証ミドルウェアを初期化
-	authMiddleware := auth.NewAuthMiddleware(cfg.Auth.JWTSecret, sessionRepo)
-
-	// 基本ハンドラーを初期化
 	handler := &Handler{supabase: supabaseClient}
 
 	if supabaseClient != nil && supabaseClient.Ready() {
@@ -62,6 +38,27 @@ func NewRouter(supabaseClient supabase.Client, db *sql.DB, cfg *config.Config) h
 	// ヘルスチェックエンドポイント
 	mux.HandleFunc("/health", handler.health)
 	mux.HandleFunc("/supabase/health", handler.supabaseHealth)
+	mux.HandleFunc("/ws", handler.websocket)
+
+	// 認証関連エンドポイント
+	if db != nil && cfg != nil && cfg.Auth.Enabled {
+		userRepo := repository.NewUserRepository(db)
+		sessionRepo := repository.NewSessionRepository(db)
+
+		appleService := auth.NewAppleAuthService(
+			cfg.Auth.AppleClientID,
+			cfg.Auth.AppleTeamID,
+			cfg.Auth.AppleKeyID,
+		)
+
+		authHandler := auth.NewAuthHandler(appleService, userRepo, sessionRepo, cfg.Auth.JWTSecret)
+		authMiddleware := auth.NewAuthMiddleware(cfg.Auth.JWTSecret, sessionRepo)
+
+		mux.HandleFunc("/auth/apple", authHandler.HandleAppleSignIn)
+		mux.HandleFunc("/auth/refresh", authHandler.HandleRefresh)
+		mux.Handle("/auth/logout", authMiddleware.RequireAuth(http.HandlerFunc(authHandler.HandleLogout)))
+		mux.Handle("/protected", authMiddleware.RequireAuth(http.HandlerFunc(handler.protected)))
+	}
 
 	return corsMiddleware(cfg.CORS.AllowedOrigins, loggingMiddleware(mux))
 }
@@ -116,6 +113,36 @@ func (h *Handler) supabaseHealth(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]string{
 		"status": payload.Status,
 	})
+}
+
+func (h *Handler) websocket(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w)
+		return
+	}
+
+	conn, err := wsUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("websocket upgrade failed: %v", err)
+		http.Error(w, "failed to upgrade connection", http.StatusBadRequest)
+		return
+	}
+	defer conn.Close()
+
+	for {
+		msgType, payload, err := conn.ReadMessage()
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Printf("websocket read error: %v", err)
+			}
+			return
+		}
+
+		if err := conn.WriteMessage(msgType, payload); err != nil {
+			log.Printf("websocket write error: %v", err)
+			return
+		}
+	}
 }
 
 func loggingMiddleware(next http.Handler) http.Handler {
