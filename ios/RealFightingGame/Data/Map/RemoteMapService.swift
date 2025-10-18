@@ -19,35 +19,41 @@ struct RemoteMapService: MapService {
     }
 
     func fetchPins(in region: MKCoordinateRegion) async throws -> MapPinsResult {
-        var components = URLComponents(url: baseURL.appendingPathComponent("map/spots"), resolvingAgainstBaseURL: false)
+        var components = URLComponents(url: baseURL.appendingPathComponent("game"), resolvingAgainstBaseURL: false)
         components?.queryItems = [
             URLQueryItem(name: "lat", value: String(region.center.latitude)),
-            URLQueryItem(name: "lon", value: String(region.center.longitude)),
-            URLQueryItem(name: "radiusMeters", value: String(Int(max(region.span.latitudeDelta, region.span.longitudeDelta) * 111_000)))
+            URLQueryItem(name: "lng", value: String(region.center.longitude))
         ]
 
         guard let url = components?.url else {
             throw RemoteMapServiceError.invalidURL
         }
 
-        let (data, response) = try await session.data(from: url)
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse,
               (200 ..< 300).contains(httpResponse.statusCode) else {
             throw RemoteMapServiceError.invalidResponse
         }
 
-        let payload = try decoder.decode(MapSpotsResponse.self, from: data)
-        let spots = payload.spots.map {
-            MapPin(title: $0.name,
-                   coordinate: CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude))
+        let payload = try decoder.decode(GameResponse.self, from: data)
+
+        let spots = payload.battleStages.map { stage -> MapPin in
+            let coordinate = CLLocationCoordinate2D(latitude: stage.latitude, longitude: stage.longitude)
+            let uuid = UUID(uuidString: stage.id) ?? UUID()
+            return MapPin(
+                id: uuid,
+                title: stage.name,
+                coordinate: coordinate,
+                stageID: stage.id,
+                distanceMeters: stage.distanceMeters
+            )
         }
 
-        let userPin = payload.playerLocation.map {
-            MapPin(title: $0.name ?? "現在地",
-                   coordinate: CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude))
-        }
-
-        return MapPinsResult(userLocation: userPin, spots: spots)
+        return MapPinsResult(userLocation: nil, spots: spots)
     }
 }
 
@@ -57,22 +63,18 @@ extension RemoteMapService {
         case invalidResponse
     }
 
-    fileprivate struct MapSpotsResponse: Decodable {
-        struct Spot: Decodable {
-            let id: String?
+    fileprivate struct GameResponse: Decodable {
+        struct BattleStage: Decodable {
+            let id: String
             let name: String
             let latitude: Double
             let longitude: Double
+            let radiusMeters: Double?
+            let description: String?
+            let distanceMeters: Double?
         }
 
-        struct PlayerLocation: Decodable {
-            let latitude: Double
-            let longitude: Double
-            let name: String?
-        }
-
-        let spots: [Spot]
-        let playerLocation: PlayerLocation?
+        let battleStages: [BattleStage]
+        let radiusMeters: Double?
     }
 }
-

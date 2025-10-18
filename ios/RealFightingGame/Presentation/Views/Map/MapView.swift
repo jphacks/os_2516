@@ -4,13 +4,16 @@ import SwiftUI
 @available(iOS 17.0, *)
 struct MapView: View {
     @StateObject private var viewModel: MapViewModel
+    @State private var cameraPosition: MapCameraPosition
 
     init(service: MapService, locationService: LocationService? = nil) {
-        _viewModel = StateObject(wrappedValue: MapViewModel(service: service, locationService: locationService))
+        let vm = MapViewModel(service: service, locationService: locationService)
+        _viewModel = StateObject(wrappedValue: vm)
+        _cameraPosition = State(initialValue: .region(vm.region))
     }
 
     var body: some View {
-        Map(position: cameraPositionBinding, interactionModes: [.all]) {
+        Map(position: $cameraPosition, interactionModes: [.all]) {
             if let userPin = viewModel.userLocationPin {
                 Annotation("現在地", coordinate: userPin.coordinate, anchor: .center) {
                     userLocationView
@@ -30,6 +33,9 @@ struct MapView: View {
                 .padding(.bottom, 24)
         }
         .simultaneousGesture(DragGesture().onChanged { _ in viewModel.userDidPanMap() })
+        .onMapCameraChange { context in
+            viewModel.handleRegionChangeFromMap(context.region)
+        }
         .task {
             if viewModel.destinations.isEmpty {
                 viewModel.refreshPins()
@@ -40,6 +46,9 @@ struct MapView: View {
         }
         .onDisappear {
             viewModel.stopTrackingUserLocation()
+        }
+        .onReceive(viewModel.$region.dropFirst()) { region in
+            cameraPosition = .region(region)
         }
     }
 
@@ -86,17 +95,6 @@ struct MapView: View {
                 .shadow(color: .black.opacity(0.2), radius: 3, x: 0, y: 1)
         }
         .accessibilityLabel("現在地へ移動")
-    }
-
-    private var cameraPositionBinding: Binding<MapCameraPosition> {
-        Binding<MapCameraPosition>(
-            get: { MapCameraPosition.region(viewModel.region) },
-            set: { newValue in
-                if let updatedRegion = newValue.region {
-                    viewModel.handleRegionChangeFromMap(updatedRegion)
-                }
-            }
-        )
     }
 }
 

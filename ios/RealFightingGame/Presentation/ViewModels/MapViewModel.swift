@@ -62,24 +62,25 @@ final class MapViewModel: ObservableObject {
             for await update in updates {
                 if Task.isCancelled { break }
                 switch update {
-                case .success(let coordinate):
-                    await MainActor.run {
-                        let pin = MapPin(title: "現在地", coordinate: coordinate)
-                        self.userLocationPin = pin
-                        if self.isFollowingUser {
-                            self.setRegion(
-                                coordinate,
-                                span: MKCoordinateSpan(
-                                    latitudeDelta: max(0.008, self.region.span.latitudeDelta),
-                                    longitudeDelta: max(0.008, self.region.span.longitudeDelta)
-                                )
-                            )
-                        }
-                    }
-                case .failure:
-                    continue
-                }
-            }
+               case .success(let coordinate):
+                   await MainActor.run {
+                       let pin = MapPin(title: "現在地", coordinate: coordinate)
+                       self.userLocationPin = pin
+                       if self.isFollowingUser {
+                           self.setRegion(
+                               coordinate,
+                               span: MKCoordinateSpan(
+                                   latitudeDelta: max(0.008, self.region.span.latitudeDelta),
+                                   longitudeDelta: max(0.008, self.region.span.longitudeDelta)
+                               )
+                           )
+                       }
+                        self.refreshPins()
+                   }
+               case .failure:
+                   continue
+               }
+           }
         }
     }
 
@@ -141,9 +142,19 @@ final class MapViewModel: ObservableObject {
 }
 
 struct MapPin: Identifiable, Hashable {
-    let id = UUID()
+    let id: UUID
     let title: String
     let coordinate: CLLocationCoordinate2D
+    let stageID: String?
+    let distanceMeters: Double?
+
+    init(id: UUID = UUID(), title: String, coordinate: CLLocationCoordinate2D, stageID: String? = nil, distanceMeters: Double? = nil) {
+        self.id = id
+        self.title = title
+        self.coordinate = coordinate
+        self.stageID = stageID
+        self.distanceMeters = distanceMeters
+    }
 
     static func == (lhs: MapPin, rhs: MapPin) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }

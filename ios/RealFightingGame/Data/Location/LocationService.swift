@@ -24,7 +24,12 @@ final class CoreLocationService: NSObject, LocationService, CLLocationManagerDel
     }
 
     func requestWhenInUseAuthorization() async {
-        let status = CLLocationManager.authorizationStatus()
+        let status: CLAuthorizationStatus
+        if #available(iOS 14.0, *) {
+            status = manager.authorizationStatus
+        } else {
+            status = CLLocationManager.authorizationStatus()
+        }
         if status == .notDetermined {
             manager.requestWhenInUseAuthorization()
         }
