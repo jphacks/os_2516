@@ -49,7 +49,7 @@ jobs:
             --platform managed \
             --region "$GCP_REGION" \
             --allow-unauthenticated \
-            --set-env-vars "PORT=8080,SUPABASE_DB_URL=${SUPABASE_DB_URL}"
+            --set-env-vars "SUPABASE_DB_URL=${SUPABASE_DB_URL}"
 
       - name: Wait for service readiness
         run: |
