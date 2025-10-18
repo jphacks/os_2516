@@ -45,8 +45,10 @@ func NewRouter(supabaseClient supabase.Client, db *sql.DB, cfg *config.Config) h
 	// HP/MPハンドラーを初期化
 	hpmpHandler := hpmp.NewHPMPHandler(playerRepo)
 
-	// 認証ミドルウェアを初期化
-	authMiddleware := auth.NewAuthMiddleware(cfg.Auth.JWTSecret, sessionRepo)
+	var authMiddleware *auth.AuthMiddleware
+	if sessionRepo != nil {
+		authMiddleware = auth.NewAuthMiddleware(cfg.Auth.JWTSecret, sessionRepo)
+	}
 
 	// 基本ハンドラーを初期化
 	handler := &Handler{supabase: supabaseClient}
@@ -74,32 +76,26 @@ func NewRouter(supabaseClient supabase.Client, db *sql.DB, cfg *config.Config) h
 	mux.HandleFunc("/auth/signup", authHandler.HandleSignUp)
 	mux.HandleFunc("/auth/signin", authHandler.HandleSignIn)
 	mux.HandleFunc("/auth/refresh", authHandler.HandleRefresh)
-	mux.HandleFunc("/auth/logout", authHandler.HandleLogout)
-	// 認証関連エンドポイント
-	if db != nil && cfg != nil && cfg.Auth.Enabled {
-		userRepo := repository.NewUserRepository(db)
-		sessionRepo := repository.NewSessionRepository(db)
-
-		appleService := auth.NewAppleAuthService(
-			cfg.Auth.AppleClientID,
-			cfg.Auth.AppleTeamID,
-			cfg.Auth.AppleKeyID,
-		)
-
-		authHandler := auth.NewAuthHandler(appleService, userRepo, sessionRepo, cfg.Auth.JWTSecret)
-		authMiddleware := auth.NewAuthMiddleware(cfg.Auth.JWTSecret, sessionRepo)
-
-		mux.HandleFunc("/auth/apple", authHandler.HandleAppleSignIn)
-		mux.HandleFunc("/auth/refresh", authHandler.HandleRefresh)
+	if authMiddleware != nil {
 		mux.Handle("/auth/logout", authMiddleware.RequireAuth(http.HandlerFunc(authHandler.HandleLogout)))
 		mux.Handle("/protected", authMiddleware.RequireAuth(http.HandlerFunc(handler.protected)))
+	} else {
+		mux.HandleFunc("/auth/logout", authHandler.HandleLogout)
+		mux.HandleFunc("/protected", methodNotAllowedHandler)
 	}
 
-	// HP/MP関連のエンドポイント
-	mux.Handle("/api/hp", authMiddleware.RequireAuth(http.HandlerFunc(hpmpHandler.HandleGetHP)))
-	mux.Handle("/api/hp/update", authMiddleware.RequireAuth(http.HandlerFunc(hpmpHandler.HandleUpdateHP)))
-	mux.Handle("/api/mp", authMiddleware.RequireAuth(http.HandlerFunc(hpmpHandler.HandleGetMP)))
-	mux.Handle("/api/mp/update", authMiddleware.RequireAuth(http.HandlerFunc(hpmpHandler.HandleUpdateMP)))
+	if authMiddleware != nil {
+		// HP/MP関連のエンドポイント（認証必須）
+		mux.Handle("/api/hp", authMiddleware.RequireAuth(http.HandlerFunc(hpmpHandler.HandleGetHP)))
+		mux.Handle("/api/hp/update", authMiddleware.RequireAuth(http.HandlerFunc(hpmpHandler.HandleUpdateHP)))
+		mux.Handle("/api/mp", authMiddleware.RequireAuth(http.HandlerFunc(hpmpHandler.HandleGetMP)))
+		mux.Handle("/api/mp/update", authMiddleware.RequireAuth(http.HandlerFunc(hpmpHandler.HandleUpdateMP)))
+	} else {
+		mux.HandleFunc("/api/hp", methodNotAllowedHandler)
+		mux.HandleFunc("/api/hp/update", methodNotAllowedHandler)
+		mux.HandleFunc("/api/mp", methodNotAllowedHandler)
+		mux.HandleFunc("/api/mp/update", methodNotAllowedHandler)
+	}
 
 	return corsMiddleware(cfg.CORS.AllowedOrigins, loggingMiddleware(mux))
 }
@@ -296,6 +292,10 @@ func loggingMiddleware(next http.Handler) http.Handler {
 func methodNotAllowed(w http.ResponseWriter) {
 	w.Header().Set("Allow", http.MethodGet)
 	http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+}
+
+func methodNotAllowedHandler(w http.ResponseWriter, r *http.Request) {
+	methodNotAllowed(w)
 }
 
 func (h *Handler) protected(w http.ResponseWriter, r *http.Request) {

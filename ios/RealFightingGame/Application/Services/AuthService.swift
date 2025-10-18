@@ -5,12 +5,6 @@ struct AuthResponse: Decodable {
     let user: UserProfile
     let expiresIn: Int
 
-    enum CodingKeys: String, CodingKey {
-        case accessToken = "access_token"
-        case user
-        case expiresIn = "expires_in"
-    }
-
     var expiryDate: Date {
         Date().addingTimeInterval(Double(expiresIn))
     }
@@ -97,11 +91,17 @@ final class AuthService: AuthServicing {
             throw AuthServiceError.httpError(statusCode: httpResponse.statusCode, message: message)
         }
 
-        guard let authResponse = try? decoder.decode(AuthResponse.self, from: data) else {
+        do {
+            return try decoder.decode(AuthResponse.self, from: data)
+        } catch {
+            if let raw = String(data: data, encoding: .utf8) {
+                print("[AuthService] decode failed. Raw response: \(raw)")
+            } else {
+                print("[AuthService] decode failed. Response bytes: \(data as NSData)")
+            }
+            print("[AuthService] decode error detail: \(error)")
             throw AuthServiceError.decodingFailed
         }
-
-        return authResponse
     }
 }
 
