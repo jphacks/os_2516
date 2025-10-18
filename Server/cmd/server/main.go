@@ -11,10 +11,15 @@ import (
 	"time"
 
 	"server/internal/api"
+	"server/internal/config"
 	"server/internal/supabase"
 )
 
 func main() {
+	if err := config.LoadEnvFiles(".env", "../.env"); err != nil {
+		log.Printf("failed to load env file: %v", err)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
