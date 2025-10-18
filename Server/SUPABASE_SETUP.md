@@ -41,12 +41,6 @@ cp env.example .env
 # データベース接続
 SUPABASE_DB_URL=postgresql://postgres:[YOUR-PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres
 
-# Apple Sign In設定
-APPLE_CLIENT_ID=com.yourcompany.realfightinggame
-APPLE_TEAM_ID=YOUR_TEAM_ID
-APPLE_KEY_ID=YOUR_KEY_ID
-APPLE_PRIVATE_KEY_PATH=./path/to/AuthKey_XXXXXXXXXX.p8
-
 # JWT設定
 JWT_SECRET=your-super-secret-jwt-key-here
 
@@ -72,29 +66,10 @@ psql "postgresql://postgres:[YOUR-PASSWORD]@db.[PROJECT-REF].supabase.co:5432/po
 
 または、Supabase DashboardのSQL Editorで各ファイルの内容を実行。
 
-## 5. Apple Sign In設定
+## 5. メール・パスワード認証設定
 
-### 5.1 Apple Developer Console設定
-1. [Apple Developer Console](https://developer.apple.com/account/)にログイン
-2. 「Certificates, Identifiers & Profiles」を選択
-3. 「Identifiers」で新しいApp IDを作成
-4. 「Sign In with Apple」を有効化
-5. 「Services IDs」で新しいService IDを作成
-6. 「Sign In with Apple」を設定し、ドメインとリダイレクトURLを登録
-
-### 5.2 秘密鍵の生成
-1. 「Keys」セクションで新しいキーを作成
-2. 「Sign In with Apple」を有効化
-3. 秘密鍵（.p8ファイル）をダウンロード
-4. キーIDをメモ
-
-### 5.3 環境変数の設定
-```env
-APPLE_CLIENT_ID=com.yourcompany.realfightinggame
-APPLE_TEAM_ID=YOUR_TEAM_ID
-APPLE_KEY_ID=YOUR_KEY_ID
-APPLE_PRIVATE_KEY_PATH=./AuthKey_XXXXXXXXXX.p8
-```
+外部プロバイダ連携は不要です。ユーザー登録時にメールアドレスとパスワードをAPIへ送信するだけで利用できます。
+フロントエンドでは `/auth/signup` と `/auth/signin` のエンドポイントに対してJSONをPOSTする実装を用意してください。
 
 ## 6. サーバーの起動
 
@@ -120,12 +95,17 @@ curl http://localhost:8080/supabase/health
 
 ## 7. APIテスト
 
-### 7.1 Apple Sign Inテスト
+### 7.1 サインイン／サインアップテスト
 ```bash
-# Apple Sign In（実際のIDトークンが必要）
-curl -X POST http://localhost:8080/auth/apple/signin \
+# 新規登録
+curl -X POST http://localhost:8080/auth/signup \
   -H "Content-Type: application/json" \
-  -d '{"id_token": "YOUR_APPLE_ID_TOKEN"}'
+  -d '{"email": "user@example.com", "password": "Passw0rd!", "full_name": "Player One"}'
+
+# サインイン
+curl -X POST http://localhost:8080/auth/signin \
+  -H "Content-Type: application/json" \
+  -d '{"email": "user@example.com", "password": "Passw0rd!"}'
 ```
 
 ### 7.2 HP/MP APIテスト
@@ -149,10 +129,10 @@ curl -X PUT \
 - ファイアウォール設定を確認
 - Supabaseプロジェクトがアクティブか確認
 
-### 8.2 Apple Sign Inエラー
-- 秘密鍵ファイルのパスが正しいか確認
-- Team ID、Key IDが正しいか確認
-- App IDの設定を確認
+### 8.2 認証エラー
+- 送信したメールアドレス／パスワードが正しいか確認
+- パスワードは8文字以上か確認
+- 同じメールアドレスで既に登録済みでないか確認
 
 ### 8.3 マイグレーションエラー
 - 既存のテーブルとの競合を確認
@@ -179,6 +159,5 @@ curl -X PUT \
 ## 10. 参考リンク
 
 - [Supabase Documentation](https://supabase.com/docs)
-- [Apple Sign In Documentation](https://developer.apple.com/sign-in-with-apple/)
 - [Go PostgreSQL Driver](https://github.com/lib/pq)
 - [JWT Go Library](https://github.com/golang-jwt/jwt)

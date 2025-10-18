@@ -12,6 +12,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // PlayerRepository はプレイヤーリポジトリのインターフェースです
@@ -22,17 +23,16 @@ type PlayerRepository interface {
 
 // AuthHandler は認証関連のHTTPハンドラーです
 type AuthHandler struct {
-	appleService *AppleAuthService
-	userRepo     UserRepository
-	playerRepo   PlayerRepository
-	sessionRepo  SessionRepository
-	jwtSecret    string
+	userRepo    UserRepository
+	playerRepo  PlayerRepository
+	sessionRepo SessionRepository
+	jwtSecret   string
 }
 
 // UserRepository はユーザーリポジトリのインターフェースです
 type UserRepository interface {
 	CreateUser(ctx context.Context, user *entities.User) error
-	GetUserByAppleID(ctx context.Context, appleID string) (*entities.User, error)
+	GetUserByEmail(ctx context.Context, email string) (*entities.User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (*entities.User, error)
 	UpdateUser(ctx context.Context, user *entities.User) error
 }
@@ -46,38 +46,115 @@ type SessionRepository interface {
 }
 
 // NewAuthHandler は新しい認証ハンドラーを作成します
-func NewAuthHandler(appleService *AppleAuthService, userRepo UserRepository, playerRepo PlayerRepository, sessionRepo SessionRepository, jwtSecret string) *AuthHandler {
+func NewAuthHandler(userRepo UserRepository, playerRepo PlayerRepository, sessionRepo SessionRepository, jwtSecret string) *AuthHandler {
 	return &AuthHandler{
-		appleService: appleService,
-		userRepo:     userRepo,
-		playerRepo:   playerRepo,
-		sessionRepo:  sessionRepo,
-		jwtSecret:    jwtSecret,
+		userRepo:    userRepo,
+		playerRepo:  playerRepo,
+		sessionRepo: sessionRepo,
+		jwtSecret:   jwtSecret,
 	}
 }
 
-// SignInRequest Apple Sign Inリクエスト
-type SignInRequest struct {
-	IDToken string `json:"id_token" validate:"required"`
+// SignUpRequest はユーザー登録リクエストです
+type SignUpRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	FullName string `json:"full_name"`
 }
 
-// SignInResponse Apple Sign Inレスポンス
+// SignInRequest はサインインリクエストです
+type SignInRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+// SignInResponse はサインインレスポンスです
 type SignInResponse struct {
 	AccessToken string    `json:"access_token"`
 	User        *UserInfo `json:"user"`
 	ExpiresIn   int64     `json:"expires_in"`
 }
 
-// UserInfo ユーザー情報
+// UserInfo はレスポンスに含めるユーザー情報です
 type UserInfo struct {
 	ID       uuid.UUID `json:"id"`
-	AppleID  string    `json:"apple_id"`
 	Email    string    `json:"email"`
 	FullName string    `json:"full_name"`
 }
 
-// HandleAppleSignIn Apple Sign Inを処理します
-func (h *AuthHandler) HandleAppleSignIn(w http.ResponseWriter, r *http.Request) {
+// HandleSignUp はユーザー登録を処理します
+func (h *AuthHandler) HandleSignUp(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req SignUpRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	email := normalizeEmail(req.Email)
+	if email == "" || len(req.Password) < 8 {
+		http.Error(w, "Invalid email or password", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+
+	if _, err := h.userRepo.GetUserByEmail(ctx, email); err == nil {
+		http.Error(w, "User already exists", http.StatusConflict)
+		return
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		http.Error(w, "Failed to process password", http.StatusInternalServerError)
+		return
+	}
+
+	user := entities.NewUser(email, string(hashedPassword), strings.TrimSpace(req.FullName))
+	if err := h.userRepo.CreateUser(ctx, user); err != nil {
+		http.Error(w, "Failed to create user", http.StatusInternalServerError)
+		return
+	}
+
+	player := entities.NewPlayer(&user.ID, user.FullName)
+	if err := h.playerRepo.CreatePlayer(ctx, player); err != nil {
+		http.Error(w, "Failed to create player", http.StatusInternalServerError)
+		return
+	}
+
+	accessToken, expiresAt, err := h.generateAccessToken(user.ID)
+	if err != nil {
+		http.Error(w, "Failed to generate access token", http.StatusInternalServerError)
+		return
+	}
+
+	session := entities.NewSession(user.ID, accessToken, expiresAt)
+	if err := h.sessionRepo.CreateSession(ctx, session); err != nil {
+		http.Error(w, "Failed to create session", http.StatusInternalServerError)
+		return
+	}
+
+	response := SignInResponse{
+		AccessToken: accessToken,
+		User: &UserInfo{
+			ID:       user.ID,
+			Email:    user.Email,
+			FullName: user.FullName,
+		},
+		ExpiresIn: int64(time.Until(expiresAt).Seconds()),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(response)
+}
+
+// HandleSignIn はメール・パスワードによるサインインを処理します
+func (h *AuthHandler) HandleSignIn(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -89,62 +166,41 @@ func (h *AuthHandler) HandleAppleSignIn(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	ctx := r.Context()
-
-	// Apple ID Tokenを検証
-	claims, err := h.appleService.VerifyIDToken(ctx, req.IDToken)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Token verification failed: %v", err), http.StatusUnauthorized)
+	email := normalizeEmail(req.Email)
+	if email == "" || req.Password == "" {
+		http.Error(w, "Invalid email or password", http.StatusBadRequest)
 		return
 	}
 
-	// ユーザーを取得または作成
-	user, err := h.userRepo.GetUserByAppleID(ctx, claims.Sub)
-	if err != nil {
-		// ユーザーが存在しない場合は新規作成
-		user = entities.NewUser(claims.Sub, claims.Email, "")
-		if err := h.userRepo.CreateUser(ctx, user); err != nil {
-			http.Error(w, "Failed to create user", http.StatusInternalServerError)
-			return
-		}
+	ctx := r.Context()
 
-		// 新規ユーザーの場合はプレイヤーも作成
-		player := entities.NewPlayer(&user.ID, user.FullName)
-		if err := h.playerRepo.CreatePlayer(ctx, player); err != nil {
-			http.Error(w, "Failed to create player", http.StatusInternalServerError)
-			return
-		}
-	} else {
-		// 既存ユーザーの情報を更新（メールアドレスが変更されている可能性）
-		if claims.Email != "" && claims.Email != user.Email {
-			user.UpdateInfo(claims.Email, user.FullName)
-			if err := h.userRepo.UpdateUser(ctx, user); err != nil {
-				http.Error(w, "Failed to update user", http.StatusInternalServerError)
-				return
-			}
-		}
+	user, err := h.userRepo.GetUserByEmail(ctx, email)
+	if err != nil {
+		http.Error(w, "Invalid email or password", http.StatusUnauthorized)
+		return
 	}
 
-	// セッション用のJWTトークンを生成
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
+		http.Error(w, "Invalid email or password", http.StatusUnauthorized)
+		return
+	}
+
 	accessToken, expiresAt, err := h.generateAccessToken(user.ID)
 	if err != nil {
 		http.Error(w, "Failed to generate access token", http.StatusInternalServerError)
 		return
 	}
 
-	// セッションをデータベースに保存
 	session := entities.NewSession(user.ID, accessToken, expiresAt)
 	if err := h.sessionRepo.CreateSession(ctx, session); err != nil {
 		http.Error(w, "Failed to create session", http.StatusInternalServerError)
 		return
 	}
 
-	// レスポンスを返す
 	response := SignInResponse{
 		AccessToken: accessToken,
 		User: &UserInfo{
 			ID:       user.ID,
-			AppleID:  user.AppleID,
 			Email:    user.Email,
 			FullName: user.FullName,
 		},
@@ -162,7 +218,6 @@ func (h *AuthHandler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Authorizationヘッダーからトークンを取得
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
 		http.Error(w, "Authorization header required", http.StatusUnauthorized)
@@ -177,7 +232,6 @@ func (h *AuthHandler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	// セッションを検証
 	session, err := h.sessionRepo.GetSessionByToken(ctx, token)
 	if err != nil {
 		http.Error(w, "Invalid session", http.StatusUnauthorized)
@@ -189,38 +243,32 @@ func (h *AuthHandler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ユーザー情報を取得
 	user, err := h.userRepo.GetUserByID(ctx, session.UserID)
 	if err != nil {
 		http.Error(w, "User not found", http.StatusUnauthorized)
 		return
 	}
 
-	// 新しいトークンを生成
 	newAccessToken, newExpiresAt, err := h.generateAccessToken(user.ID)
 	if err != nil {
 		http.Error(w, "Failed to generate new access token", http.StatusInternalServerError)
 		return
 	}
 
-	// 古いセッションを削除
 	if err := h.sessionRepo.DeleteSession(ctx, token); err != nil {
-		// ログに記録するが、処理は続行
+		// セッションが見つからなくても致命的ではないので処理を続行
 	}
 
-	// 新しいセッションを作成
 	newSession := entities.NewSession(user.ID, newAccessToken, newExpiresAt)
 	if err := h.sessionRepo.CreateSession(ctx, newSession); err != nil {
 		http.Error(w, "Failed to create new session", http.StatusInternalServerError)
 		return
 	}
 
-	// レスポンスを返す
 	response := SignInResponse{
 		AccessToken: newAccessToken,
 		User: &UserInfo{
 			ID:       user.ID,
-			AppleID:  user.AppleID,
 			Email:    user.Email,
 			FullName: user.FullName,
 		},
@@ -238,7 +286,6 @@ func (h *AuthHandler) HandleLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Authorizationヘッダーからトークンを取得
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
 		http.Error(w, "Authorization header required", http.StatusUnauthorized)
@@ -253,18 +300,17 @@ func (h *AuthHandler) HandleLogout(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	// セッションを削除
 	if err := h.sessionRepo.DeleteSession(ctx, token); err != nil {
 		// セッションが存在しない場合も成功として扱う
 	}
 
-	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"message": "Logged out successfully"})
 }
 
 // generateAccessToken はアクセストークンを生成します
 func (h *AuthHandler) generateAccessToken(userID uuid.UUID) (string, time.Time, error) {
-	expiresAt := time.Now().Add(24 * time.Hour) // 24時間有効
+	expiresAt := time.Now().Add(24 * time.Hour)
 
 	claims := jwt.MapClaims{
 		"user_id":    userID.String(),
@@ -280,4 +326,8 @@ func (h *AuthHandler) generateAccessToken(userID uuid.UUID) (string, time.Time, 
 	}
 
 	return tokenString, expiresAt, nil
+}
+
+func normalizeEmail(email string) string {
+	return strings.TrimSpace(strings.ToLower(email))
 }

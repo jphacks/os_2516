@@ -8,23 +8,23 @@ import (
 
 // User はアプリケーションのユーザーを表すエンティティです
 type User struct {
-	ID        uuid.UUID `json:"id" db:"id"`
-	AppleID   string    `json:"apple_id" db:"apple_id"`   // Apple ID（一意）
-	Email     string    `json:"email" db:"email"`         // メールアドレス
-	FullName  string    `json:"full_name" db:"full_name"` // フルネーム
-	CreatedAt time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
+	ID           uuid.UUID `json:"id" db:"id"`
+	Email        string    `json:"email" db:"email"`         // メールアドレス（一意）
+	PasswordHash string    `json:"-" db:"password_hash"`     // ハッシュ化済みパスワード
+	FullName     string    `json:"full_name" db:"full_name"` // フルネーム
+	CreatedAt    time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // NewUser は新しいユーザーを作成します
-func NewUser(appleID, email, fullName string) *User {
+func NewUser(email, passwordHash, fullName string) *User {
 	return &User{
-		ID:        uuid.New(),
-		AppleID:   appleID,
-		Email:     email,
-		FullName:  fullName,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		ID:           uuid.New(),
+		Email:        email,
+		PasswordHash: passwordHash,
+		FullName:     fullName,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
 	}
 }
 

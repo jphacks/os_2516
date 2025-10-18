@@ -26,12 +26,7 @@ type DatabaseConfig struct {
 
 // AuthConfig は認証設定です
 type AuthConfig struct {
-	Enabled       bool
-	Required      bool
-	JWTSecret     string
-	AppleClientID string
-	AppleTeamID   string
-	AppleKeyID    string
+	JWTSecret string
 }
 
 // CORSConfig はCORS設定です
@@ -49,11 +44,7 @@ func Load() (*Config, error) {
 			URL: getEnv("DATABASE_URL", ""),
 		},
 		Auth: AuthConfig{
-			Required:      getEnvBool("AUTH_REQUIRED", true),
-			JWTSecret:     getEnv("JWT_SECRET", ""),
-			AppleClientID: getEnv("APPLE_CLIENT_ID", ""),
-			AppleTeamID:   getEnv("APPLE_TEAM_ID", ""),
-			AppleKeyID:    getEnv("APPLE_KEY_ID", ""),
+			JWTSecret: getEnv("JWT_SECRET", ""),
 		},
 		CORS: CORSConfig{
 			AllowedOrigins: getEnvSlice("CORS_ALLOWED_ORIGINS", []string{"*"}),
@@ -70,11 +61,8 @@ func Load() (*Config, error) {
 
 // Validate は設定の妥当性を検証します
 func (c *Config) Validate() error {
-	missingAuth := c.Auth.missingFields()
-	c.Auth.Enabled = len(missingAuth) == 0
-
-	if c.Auth.Required && len(missingAuth) > 0 {
-		return fmt.Errorf("auth credentials missing: %s", strings.Join(missingAuth, ", "))
+	if c.Auth.JWTSecret == "" {
+		return fmt.Errorf("JWT_SECRET is required")
 	}
 
 	return nil
@@ -111,23 +99,4 @@ func getEnvBool(key string, defaultValue bool) bool {
 	default:
 		return defaultValue
 	}
-}
-
-func (a *AuthConfig) missingFields() []string {
-	var missing []string
-
-	if a.JWTSecret == "" {
-		missing = append(missing, "JWT_SECRET")
-	}
-	if a.AppleClientID == "" {
-		missing = append(missing, "APPLE_CLIENT_ID")
-	}
-	if a.AppleTeamID == "" {
-		missing = append(missing, "APPLE_TEAM_ID")
-	}
-	if a.AppleKeyID == "" {
-		missing = append(missing, "APPLE_KEY_ID")
-	}
-
-	return missing
 }
