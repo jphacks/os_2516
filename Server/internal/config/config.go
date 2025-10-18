@@ -83,3 +83,39 @@ func getEnvSlice(key string, defaultValue []string) []string {
 	}
 	return defaultValue
 }
+
+// getEnvBool は環境変数を bool として取得します
+func getEnvBool(key string, defaultValue bool) bool {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return defaultValue
+	}
+
+	switch strings.ToLower(value) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return defaultValue
+	}
+}
+
+func (a *AuthConfig) missingFields() []string {
+	var missing []string
+
+	if a.JWTSecret == "" {
+		missing = append(missing, "JWT_SECRET")
+	}
+	if a.AppleClientID == "" {
+		missing = append(missing, "APPLE_CLIENT_ID")
+	}
+	if a.AppleTeamID == "" {
+		missing = append(missing, "APPLE_TEAM_ID")
+	}
+	if a.AppleKeyID == "" {
+		missing = append(missing, "APPLE_KEY_ID")
+	}
+
+	return missing
+}
