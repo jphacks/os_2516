@@ -25,6 +25,3 @@ CREATE INDEX IF NOT EXISTS idx_users_apple_id ON users(apple_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
-
--- 期限切れセッションの自動削除用のインデックス
-CREATE INDEX IF NOT EXISTS idx_sessions_cleanup ON sessions(expires_at) WHERE expires_at < NOW();
