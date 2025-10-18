@@ -102,7 +102,7 @@
 | outcome | TEXT |  | `win` `lose` `draw` などプレイヤーごとの結果 |
 | final_hp | SMALLINT |  | 終了時 HP |
 
-### player_state_snapshots — 現在ステート
+### player_state_snapshots — 現在ステート(x)
 | カラム | 型 | 制約 | 説明 |
 | --- | --- | --- | --- |
 | id | UUID | PK | スナップショットID |
@@ -117,7 +117,7 @@
 
 ## イベント・ログテーブル
 
-### position_logs — 位置・向きログ
+### position_logs — 位置・向きログ(x)
 | カラム | 型 | 制約 | 説明 |
 | --- | --- | --- | --- |
 | id | UUID | PK | ログID |
@@ -146,7 +146,7 @@
 | created_at | TIMESTAMPTZ | DEFAULT now() | 記録時刻 |
 | INDEX(session_id, created_at) |  |  | 時系列照会用 |
 
-### mana_events — マナ獲得・消費
+### mana_events — マナ獲得・消費(x)
 | カラム | 型 | 制約 | 説明 |
 | --- | --- | --- | --- |
 | id | UUID | PK | イベントID |
@@ -159,7 +159,7 @@
 | recorded_at | TIMESTAMPTZ | DEFAULT now() | 記録時刻 |
 | INDEX(session_id, player_id) |  |  | 残量追跡用 |
 
-### referee_decisions — 裁定・警告
+### referee_decisions — 裁定・警告(x)
 | カラム | 型 | 制約 | 説明 |
 | --- | --- | --- | --- |
 | id | UUID | PK | 裁定ID |
@@ -172,7 +172,7 @@
 | resolved_at | TIMESTAMPTZ |  | 処理完了時刻 |
 | INDEX(session_id, verdict) |  |  | 違反集計用 |
 
-### session_events — 汎用イベントストア
+### session_events — 汎用イベントストア(x)
 | カラム | 型 | 制約 | 説明 |
 | --- | --- | --- | --- |
 | id | BIGSERIAL | PK | イベントID |

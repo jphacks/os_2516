@@ -17,6 +17,7 @@ jobs:
       GCP_REGION: ${{ secrets.GCP_REGION }}
       CLOUD_RUN_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
       SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      JWT_SECRET: ${{ secrets.JWT_SECRET }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -49,7 +50,7 @@ jobs:
             --platform managed \
             --region "$GCP_REGION" \
             --allow-unauthenticated \
-            --set-env-vars "SUPABASE_DB_URL=${SUPABASE_DB_URL}"
+            --set-env-vars "SUPABASE_DB_URL=${SUPABASE_DB_URL},JWT_SECRET=${JWT_SECRET}"
 
       - name: Wait for service readiness
         run: |

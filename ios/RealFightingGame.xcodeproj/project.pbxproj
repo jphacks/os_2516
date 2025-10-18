@@ -398,6 +398,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "The app exchanges discovery tokens with nearby peers over the local network.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "現在地を地図に表示し、付近のスポットを案内するために使用します。";
 				INFOPLIST_KEY_NSNearbyInteractionUsageDescription = "The app measures distance and direction to nearby players.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -439,6 +440,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "The app exchanges discovery tokens with nearby peers over the local network.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "現在地を地図に表示し、付近のスポットを案内するために使用します。";
 				INFOPLIST_KEY_NSNearbyInteractionUsageDescription = "The app measures distance and direction to nearby players.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;

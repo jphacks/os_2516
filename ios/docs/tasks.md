@@ -25,10 +25,10 @@
   - [ ] 参加可能距離の判定＋「参加」ボタン表示（例: 100m 以内）
   - [ ] 参加ボタン→`BattleView` へ遷移（同時に `WebSocketClient` へ `join`）
 - [ ] Battle（最小フロー）
-  - [ ] `BattleView` 最小レイアウト（HP/行動ボタン）
-  - [ ] `BattleViewModel`（攻撃1種・HP減算・ターン進行の最小実装）
-  - [ ] `MockBattleService`（ローカル進行）＋`BattleService`（WS受信 `state` を反映）
-  - [ ] 結果画面（勝敗/再戦ボタン）
+  - [x] `BattleView` 最小レイアウト（HP/行動ボタン）
+  - [x] `BattleViewModel`（攻撃1種・HP減算・非ターン制へ移行済み）
+  - [x] `MockBattleService`（ローカル進行・Tick/AI/非ターン）／`BattleService` 境界確立
+  - [x] 結果画面（勝敗/再戦ボタン）
 - [ ] テスト
   - [ ] `MapViewModelTests`（success/empty/error/キャンセル）
   - [ ] `BattleViewModelTests`（ダメージ計算と進行）
@@ -36,7 +36,7 @@
   - [ ] 簡易スナップショット or UITest（主要分岐）
 
 ### MVP 受け入れ条件
-- [ ] `USE_MOCK=1` で起動し、東京駅付近に初期フォーカス＋ピン表示
+- [ ] `USE_MOCK=1` で起動し、近畿大学付近に初期フォーカス＋ピン表示
 - [ ] 現在地が参加距離内になると「参加」ボタンが表示される
 - [ ] 2台（実機またはシミュレータ）で同一セッションに `join` できる
 - [ ] 片方の `action` がもう一方の画面状態に反映される（`state` 受信）
@@ -129,26 +129,27 @@
 ---
 
 ## B0: モック先行セットアップ（Battle）
-- [ ] `BattleService` プロトコル定義（`Data/Battle/BattleService.swift`）
-- [ ] `MockBattleService` 実装（マッチング/行動/結果をローカルで決定、シード可）
-- [ ] DI 切替（Debug=モック、Release=リモート予定）
+- [x] `BattleService` プロトコル定義（`Data/Battle/BattleService.swift`）
+- [x] `MockBattleService` 実装（非ターン制Tick・AI・ローカル進行）
+- [ ] DI 切替（Debug=モック、Release=リモート予定）※現状`ServiceFactory`でDebug/`USE_MOCK=1`はモック、Releaseは暫定でモック
 
 ## B1: Battle 画面 MVP（UI/操作）
 - [ ] レイアウト
-  - [ ] `BattleView.swift` の構造（上: ステータス/中央: アリーナ/下: 操作）
-  - [ ] 縦横/小画面対応（Size Class）
+  - [x] `BattleView.swift` の構造（上: ステータス/中央: アリーナ/下: 操作）
+  - [x] 縦横/小画面対応（Size Class 最小対応）
 - [ ] コンポーネント
-  - [ ] HP/ガード/必殺ゲージ表示
-  - [ ] 行動ボタン（タップ/長押し）と無効化状態
+  - [x] HP/ガード/必殺ゲージ表示（プレースホルダ含む）
+  - [x] 行動ボタン（Attack/Guard/Special）と無効化条件（Specialはチャージ条件）
   - [ ] ターゲット選択UI（単体/全体の切替）
 - [ ] アクセシビリティ
-  - [ ] VoiceOver ラベル/ヒント
+  - [x] VoiceOver ラベル/ヒント（HP/Attack）
   - [ ] Dynamic Type 対応
 
 ## B2: 状態管理/ロジック
-- [ ] `BattleViewModel` 追加（`Presentation/ViewModels/BattleViewModel.swift`）
-- [ ] `ViewState`/`Action` 設計（待機/入力中/解決中/結果）
-- [ ] 行動キュー/クールダウン/ターン or 同期タイマー
+- [x] `BattleViewModel` 追加（`Presentation/ViewModels/BattleViewModel.swift`）
+- [x] `Action` 設計（send/非ブロッキング）＋`result`判定
+- [x] 行動キュー＋同期タイマー（MockのTick 0.2s）
+- [ ] クールダウンの明示的型管理（攻撃/必殺のCDを`BattleState`に保持）
 - [ ] ダメージ計算・クリティカル・属性相性の関数分離
 
 ## B3: 演出/入力フィードバック
