@@ -2,5 +2,5 @@
 .env
 
 # Xcode user-specific data
-ios/RealFightingGame/RealFightingGame.xcodeproj/xcuserdata/
-ios/RealFightingGame/RealFightingGame.xcodeproj/project.xcworkspace/xcuserdata/
+ios/RealFightingGame.xcodeproj/xcuserdata/
+ios/RealFightingGame.xcodeproj/project.xcworkspace/xcuserdata/
