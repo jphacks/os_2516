@@ -5,7 +5,7 @@ struct RootView: View {
 
     var body: some View {
         TabView {
-            BattleView()
+            BattleView(service: MockBattleService(config: .init(enemyDamageRange: 0...0)), motionService: container.motionService)
                 .tabItem {
                     Label("ホーム", systemImage: "house.fill")
                 }

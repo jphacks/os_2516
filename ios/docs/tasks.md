@@ -45,6 +45,34 @@
 - [ ] エラー時にメッセージとリトライが機能
 - [ ] `xcodebuild test` がグリーン
 
+### モーション（走行判定→MP回復）スパイク（P0に追加）
+- [ ] 基盤/プロトコル
+  - [ ] `MotionService` プロトコル定義（`RealFightingGame/Data/Motion/MotionService.swift`）
+  - [ ] 実装1: `CoreMotionMotionService`（`CMPedometer`の更新で歩数/歩行速度→走行推定）
+  - [ ] 実装2: `MockMotionService`（走行ON/OFFや歩数レートを指定可能）
+  - [ ] 権限: `Info.plist` に `NSMotionUsageDescription` を追加
+- [ ] DI
+  - [ ] `AppContainer` に `motionService` を追加（`USE_MOCK`で差し替え）
+- [ ] Battle画面での可視化（検証用UI）
+  - [ ] `BattleView` 上にデバッグ表示（例: 「走行中」バッジ/現在歩数・速度）
+  - [ ] 走行中のみ `selfStatus.mana` を秒間 +X 回復（上限 `maxMana`）
+  - [ ] まずは表示と回復のみ（魔法ボタンの消費・制約は後続で対応）
+- [ ] テスト
+  - [ ] `MockMotionService` による走行ON/OFFでMPが増加/停止するユニットテスト
+
+#### 受け入れ条件（モーション・スパイク）
+- [ ] 実機またはモックでBattle画面に「走行中」表示が出る
+- [ ] 走行ON時に `mana` が秒間一定量で回復し、OFFで停止
+- [ ] 権限未許可時は安全に無効化（UIは非表示または「未許可」表示）
+
+#### 実行計画（最短ルート）
+1. `MotionService`/`MockMotionService` を作成。`AsyncStream`で`isRunning`/`stepRate`を通知。
+2. `AppContainer` に `motionService` を追加し、`USE_MOCK`時はモックを注入。
+3. `BattleViewModel` に暫定購読を追加して、`isRunning`なら `mana += rate`（`min(maxMana, ...)`）。
+4. `BattleView` に小型バッジ（「走行中」）とMPの簡易表示をオーバーレイ追加。
+5. `Info.plist` に `NSMotionUsageDescription` を追記し、実機で権限確認。
+6. ユニットテスト：モックでON/OFFを切替→一定時間後のMP変化を検証。
+
 ## M0: モック先行セットアップ（共通）
 - [ ] プロトコル定義で抽象化
   - [x] `MapService` / `BattleService` をそれぞれ `RealFightingGame/Data/...` に作成
