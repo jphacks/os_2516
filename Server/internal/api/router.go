@@ -18,6 +18,7 @@ import (
 	"server/internal/game/hpmp"
 	"server/internal/infrastructure/repository"
 	"server/internal/supabase"
+	"server/internal/data"
 )
 
 // BattleStageFinder はステージ検索ユースケースのインターフェースです。
@@ -51,7 +52,8 @@ func NewRouter(supabaseClient supabase.Client, db *sql.DB, cfg *config.Config) h
 	}
 
 	// 基本ハンドラーを初期化
-	handler := &Handler{supabase: supabaseClient}
+	handler := &Handler{supabase: supabaseClient, magicTypesPath: "/home/nonroot/magic_types.json",wsUpgrader: websocket.Upgrader{
+        CheckOrigin: func(*http.Request) bool { return true },},}
 	if cfg != nil {
 		handler.allowedOrigins = cfg.CORS.AllowedOrigins
 	}
@@ -105,6 +107,8 @@ type Handler struct {
 	supabase       supabase.Client
 	stageFinder    BattleStageFinder
 	allowedOrigins []string
+	magicTypesPath string
+	wsUpgrader     websocket.Upgrader
 }
 
 func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
@@ -316,6 +320,23 @@ func (h *Handler) protected(w http.ResponseWriter, r *http.Request) {
 		"user_id": userID.String(),
 	})
 }
+
+func (h *Handler) listMagicTypes(w http.ResponseWriter, r *http.Request) {
+    if r.Method != http.MethodGet {
+        methodNotAllowed(w)
+        return
+    }
+
+    list, err := data.LoadMagicTypes(h.magicTypesPath)
+    if err != nil {
+        log.Printf("failed to load magic types: %v", err)
+        http.Error(w, "failed to load magic types", http.StatusInternalServerError)
+        return
+    }
+
+    respondJSON(w, http.StatusOK, list)
+}
+
 
 func corsMiddleware(allowedOrigins []string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
