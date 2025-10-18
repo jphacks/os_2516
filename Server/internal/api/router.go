@@ -15,22 +15,7 @@ import (
 )
 
 // NewRouter はアプリケーションの HTTP ルーティングを初期化します。
-func NewRouter(supabaseClient supabase.Client) http.Handler {
-	// 設定を読み込み
-	cfg, err := config.Load()
-	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
-	}
-
-	// データベース接続を初期化
-	var db *sql.DB
-	if cfg.Database.URL != "" {
-		db, err = sql.Open("postgres", cfg.Database.URL)
-		if err != nil {
-			log.Fatalf("Failed to connect to database: %v", err)
-		}
-		defer db.Close()
-	}
+func NewRouter(supabaseClient supabase.Client, db *sql.DB, cfg *config.Config) http.Handler {
 
 	// リポジトリを初期化
 	var userRepo auth.UserRepository
