@@ -16,8 +16,22 @@ CREATE TABLE IF NOT EXISTS public.players (
     id UUID PRIMARY KEY,
     user_id UUID UNIQUE REFERENCES public.users(id),
     display_name TEXT NOT NULL,
+    hp SMALLINT DEFAULT 100 NOT NULL,
+    mp SMALLINT DEFAULT 100 NOT NULL,
     rank SMALLINT DEFAULT 0,
     avatar_url TEXT,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Battle stage definitions with geo information
+CREATE TABLE IF NOT EXISTS public.battle_stages (
+    id UUID PRIMARY KEY,
+    name TEXT NOT NULL,
+    latitude NUMERIC(9,6) NOT NULL,
+    longitude NUMERIC(9,6) NOT NULL,
+    radius_m NUMERIC(6,2),
+    description TEXT,
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -28,8 +42,7 @@ CREATE TABLE IF NOT EXISTS public.game_sessions (
     title TEXT,
     mode TEXT NOT NULL,
     status TEXT NOT NULL,
-    arena_lat NUMERIC(9,6),
-    arena_lng NUMERIC(9,6),
+    battle_stage_id UUID REFERENCES public.battle_stages(id),
     started_at TIMESTAMPTZ,
     ended_at TIMESTAMPTZ,
     winner_user_id UUID,
