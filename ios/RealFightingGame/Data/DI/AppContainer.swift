@@ -26,7 +26,7 @@ final class AppContainer: ObservableObject {
                 repeats: true
             )
         } else {
-            self.mapService = MockMapService(mode: .success, latencyMs: 200, failureRate: 0.0, useFixture: true)
+            self.mapService = RemoteMapService(baseURL: AppConfiguration.apiBaseURL)
             self.locationService = CoreLocationService()
             self.motionService = CoreMotionMotionService()
         }

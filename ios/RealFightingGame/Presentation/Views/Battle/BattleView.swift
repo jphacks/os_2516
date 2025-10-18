@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 struct BattleView: View {
@@ -82,6 +83,9 @@ struct BattleView: View {
         }
         .onChange(of: viewModelPhase) { phase in
             if case .result(let r) = phase { presentedResult = r }
+        }
+        .onReceive(viewModel.$phase.dropFirst()) { phase in
+            if case .result(let result) = phase { presentedResult = result }
         }
         .onAppear { viewModel.onAppear() }
         .onDisappear { viewModel.onDisappear() }
