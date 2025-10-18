@@ -27,15 +27,3 @@ docker run --rm -p 8080:8080 \
 ## Cloud Run デプロイ (GitHub Actions)
 `GCP_PROJECT`, `GCP_REGION`, `CLOUD_RUN_SERVICE`, `GCP_SA_KEY`, `SUPABASE_DB_URL` を GitHub Secrets に登録すると、`deploy-cloudrun` ワークフローがトリガーされた際に Cloud Run へ自動デプロイされます。デプロイ後、ワークフローの `Verify health endpoint` ステップが `/health` を自動検証します。
 
-
-gcloud projects add-iam-policy-binding $GCP_PROJECT \
-       --member "serviceAccount:github-deployer@${GCP_PROJECT}.iam.gserviceaccount.com" \
-       --role "roles/run.admin"
-
-     gcloud projects add-iam-policy-binding $GCP_PROJECT \
-       --member "serviceAccount:github-deployer@${GCP_PROJECT}.iam.gserviceaccount.com" \
-       --role "roles/iam.serviceAccountUser"
-
-     gcloud projects add-iam-policy-binding $GCP_PROJECT \
-       --member "serviceAccount:github-deployer@${GCP_PROJECT}.iam.gserviceaccount.com" \
-       --role "roles/cloudbuild.builds.editor"
