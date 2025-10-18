@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -85,60 +86,60 @@ type UserInfo struct {
 // HandleSignUp はユーザー登録を処理します
 func (h *AuthHandler) HandleSignUp(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		h.respondError(w, r, http.StatusMethodNotAllowed, "Method not allowed", nil)
 		return
 	}
 
-	if !h.ensureDependencies(w) {
+	if !h.ensureDependencies(w, r) {
 		return
 	}
 
 	var req SignUpRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		h.respondError(w, r, http.StatusBadRequest, "Invalid request body", err)
 		return
 	}
 
 	email := normalizeEmail(req.Email)
 	if email == "" || len(req.Password) < 8 {
-		http.Error(w, "Invalid email or password", http.StatusBadRequest)
+		h.respondError(w, r, http.StatusBadRequest, "Invalid email or password", fmt.Errorf("email=%q length=%d", email, len(req.Password)))
 		return
 	}
 
 	ctx := r.Context()
 
 	if _, err := h.userRepo.GetUserByEmail(ctx, email); err == nil {
-		http.Error(w, "User already exists", http.StatusConflict)
+		h.respondError(w, r, http.StatusConflict, "User already exists", fmt.Errorf("email=%s", email))
 		return
 	}
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		http.Error(w, "Failed to process password", http.StatusInternalServerError)
+		h.respondError(w, r, http.StatusInternalServerError, "Failed to process password", err)
 		return
 	}
 
 	user := entities.NewUser(email, string(hashedPassword), strings.TrimSpace(req.FullName))
 	if err := h.userRepo.CreateUser(ctx, user); err != nil {
-		http.Error(w, "Failed to create user", http.StatusInternalServerError)
+		h.respondError(w, r, http.StatusInternalServerError, "Failed to create user", err)
 		return
 	}
 
 	player := entities.NewPlayer(&user.ID, user.FullName)
 	if err := h.playerRepo.CreatePlayer(ctx, player); err != nil {
-		http.Error(w, "Failed to create player", http.StatusInternalServerError)
+		h.respondError(w, r, http.StatusInternalServerError, "Failed to create player", err)
 		return
 	}
 
 	accessToken, expiresAt, err := h.generateAccessToken(user.ID)
 	if err != nil {
-		http.Error(w, "Failed to generate access token", http.StatusInternalServerError)
+		h.respondError(w, r, http.StatusInternalServerError, "Failed to generate access token", err)
 		return
 	}
 
 	session := entities.NewSession(user.ID, accessToken, expiresAt)
 	if err := h.sessionRepo.CreateSession(ctx, session); err != nil {
-		http.Error(w, "Failed to create session", http.StatusInternalServerError)
+		h.respondError(w, r, http.StatusInternalServerError, "Failed to create session", err)
 		return
 	}
 
@@ -160,23 +161,23 @@ func (h *AuthHandler) HandleSignUp(w http.ResponseWriter, r *http.Request) {
 // HandleSignIn はメール・パスワードによるサインインを処理します
 func (h *AuthHandler) HandleSignIn(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		h.respondError(w, r, http.StatusMethodNotAllowed, "Method not allowed", nil)
 		return
 	}
 
-	if !h.ensureDependencies(w) {
+	if !h.ensureDependencies(w, r) {
 		return
 	}
 
 	var req SignInRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		h.respondError(w, r, http.StatusBadRequest, "Invalid request body", err)
 		return
 	}
 
 	email := normalizeEmail(req.Email)
 	if email == "" || req.Password == "" {
-		http.Error(w, "Invalid email or password", http.StatusBadRequest)
+		h.respondError(w, r, http.StatusBadRequest, "Invalid email or password", fmt.Errorf("email empty? %t password length=%d", email == "", len(req.Password)))
 		return
 	}
 
@@ -184,24 +185,24 @@ func (h *AuthHandler) HandleSignIn(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.userRepo.GetUserByEmail(ctx, email)
 	if err != nil {
-		http.Error(w, "Invalid email or password", http.StatusUnauthorized)
+		h.respondError(w, r, http.StatusUnauthorized, "Invalid email or password", err)
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
-		http.Error(w, "Invalid email or password", http.StatusUnauthorized)
+		h.respondError(w, r, http.StatusUnauthorized, "Invalid email or password", err)
 		return
 	}
 
 	accessToken, expiresAt, err := h.generateAccessToken(user.ID)
 	if err != nil {
-		http.Error(w, "Failed to generate access token", http.StatusInternalServerError)
+		h.respondError(w, r, http.StatusInternalServerError, "Failed to generate access token", err)
 		return
 	}
 
 	session := entities.NewSession(user.ID, accessToken, expiresAt)
 	if err := h.sessionRepo.CreateSession(ctx, session); err != nil {
-		http.Error(w, "Failed to create session", http.StatusInternalServerError)
+		h.respondError(w, r, http.StatusInternalServerError, "Failed to create session", err)
 		return
 	}
 
@@ -222,23 +223,23 @@ func (h *AuthHandler) HandleSignIn(w http.ResponseWriter, r *http.Request) {
 // HandleRefresh トークンリフレッシュを処理します
 func (h *AuthHandler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		h.respondError(w, r, http.StatusMethodNotAllowed, "Method not allowed", nil)
 		return
 	}
 
-	if !h.ensureDependencies(w) {
+	if !h.ensureDependencies(w, r) {
 		return
 	}
 
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
-		http.Error(w, "Authorization header required", http.StatusUnauthorized)
+		h.respondError(w, r, http.StatusUnauthorized, "Authorization header required", nil)
 		return
 	}
 
 	token := strings.TrimPrefix(authHeader, "Bearer ")
 	if token == authHeader {
-		http.Error(w, "Invalid authorization header format", http.StatusUnauthorized)
+		h.respondError(w, r, http.StatusUnauthorized, "Invalid authorization header format", fmt.Errorf("auth header=%s", authHeader))
 		return
 	}
 
@@ -246,24 +247,24 @@ func (h *AuthHandler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 
 	session, err := h.sessionRepo.GetSessionByToken(ctx, token)
 	if err != nil {
-		http.Error(w, "Invalid session", http.StatusUnauthorized)
+		h.respondError(w, r, http.StatusUnauthorized, "Invalid session", err)
 		return
 	}
 
 	if session.IsExpired() {
-		http.Error(w, "Session expired", http.StatusUnauthorized)
+		h.respondError(w, r, http.StatusUnauthorized, "Session expired", fmt.Errorf("token=%s", token))
 		return
 	}
 
 	user, err := h.userRepo.GetUserByID(ctx, session.UserID)
 	if err != nil {
-		http.Error(w, "User not found", http.StatusUnauthorized)
+		h.respondError(w, r, http.StatusUnauthorized, "User not found", err)
 		return
 	}
 
 	newAccessToken, newExpiresAt, err := h.generateAccessToken(user.ID)
 	if err != nil {
-		http.Error(w, "Failed to generate new access token", http.StatusInternalServerError)
+		h.respondError(w, r, http.StatusInternalServerError, "Failed to generate new access token", err)
 		return
 	}
 
@@ -273,7 +274,7 @@ func (h *AuthHandler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 
 	newSession := entities.NewSession(user.ID, newAccessToken, newExpiresAt)
 	if err := h.sessionRepo.CreateSession(ctx, newSession); err != nil {
-		http.Error(w, "Failed to create new session", http.StatusInternalServerError)
+		h.respondError(w, r, http.StatusInternalServerError, "Failed to create new session", err)
 		return
 	}
 
@@ -294,30 +295,30 @@ func (h *AuthHandler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 // HandleLogout ログアウトを処理します
 func (h *AuthHandler) HandleLogout(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		h.respondError(w, r, http.StatusMethodNotAllowed, "Method not allowed", nil)
 		return
 	}
 
-	if !h.ensureDependencies(w) {
+	if !h.ensureDependencies(w, r) {
 		return
 	}
 
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
-		http.Error(w, "Authorization header required", http.StatusUnauthorized)
+		h.respondError(w, r, http.StatusUnauthorized, "Authorization header required", nil)
 		return
 	}
 
 	token := strings.TrimPrefix(authHeader, "Bearer ")
 	if token == authHeader {
-		http.Error(w, "Invalid authorization header format", http.StatusUnauthorized)
+		h.respondError(w, r, http.StatusUnauthorized, "Invalid authorization header format", fmt.Errorf("auth header=%s", authHeader))
 		return
 	}
 
 	ctx := r.Context()
 
 	if err := h.sessionRepo.DeleteSession(ctx, token); err != nil {
-		// セッションが存在しない場合も成功として扱う
+		log.Printf("auth: failed to delete session token=%s: %v", token, err)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -348,10 +349,15 @@ func normalizeEmail(email string) string {
 	return strings.TrimSpace(strings.ToLower(email))
 }
 
-func (h *AuthHandler) ensureDependencies(w http.ResponseWriter) bool {
+func (h *AuthHandler) ensureDependencies(w http.ResponseWriter, r *http.Request) bool {
 	if h.userRepo == nil || h.playerRepo == nil || h.sessionRepo == nil {
-		http.Error(w, "Authentication service unavailable", http.StatusServiceUnavailable)
+		h.respondError(w, r, http.StatusServiceUnavailable, "Authentication service unavailable", fmt.Errorf("userRepo nil=%t playerRepo nil=%t sessionRepo nil=%t", h.userRepo == nil, h.playerRepo == nil, h.sessionRepo == nil))
 		return false
 	}
 	return true
+}
+
+func (h *AuthHandler) respondError(w http.ResponseWriter, r *http.Request, status int, clientMessage string, err error) {
+	log.Printf("auth: %s %s -> status=%d message=%s error=%v", r.Method, r.URL.Path, status, clientMessage, err)
+	http.Error(w, clientMessage, status)
 }

@@ -20,10 +20,16 @@ struct RootView: View {
                         Label("ホーム", systemImage: "house.fill")
                     }
 
-                MapView()
-                    .tabItem {
-                        Label("マップ", systemImage: "map.fill")
-                    }
+                if #available(iOS 17.0, *) {
+                    MapView(
+                        service: container.mapService,
+                        locationService: container.locationService
+                    )
+                        .tabItem { Label("マップ", systemImage: "map.fill") }
+                } else {
+                    Text("iOS 17 以上でマップ表示に対応")
+                        .tabItem { Label("マップ", systemImage: "map.fill") }
+                }
             }
             .navigationTitle("Real Fighting Game")
             .toolbar {
@@ -40,15 +46,6 @@ struct RootView: View {
                         authViewModel.signOut()
                     }
                 }
-            if #available(iOS 17.0, *) {
-                MapView(
-                    service: container.mapService,
-                    locationService: container.locationService
-                )
-                    .tabItem { Label("マップ", systemImage: "map.fill") }
-            } else {
-                Text("iOS 17 以上でマップ表示に対応")
-                    .tabItem { Label("マップ", systemImage: "map.fill") }
             }
         }
     }
@@ -57,5 +54,5 @@ struct RootView: View {
 #Preview {
     RootView()
         .environmentObject(AuthViewModel())
-    RootView().environmentObject(AppContainer(useMock: true))
+        .environmentObject(AppContainer(useMock: true))
 }
