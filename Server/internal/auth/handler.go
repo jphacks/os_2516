@@ -89,6 +89,10 @@ func (h *AuthHandler) HandleSignUp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !h.ensureDependencies(w) {
+		return
+	}
+
 	var req SignUpRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -160,6 +164,10 @@ func (h *AuthHandler) HandleSignIn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !h.ensureDependencies(w) {
+		return
+	}
+
 	var req SignInRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -215,6 +223,10 @@ func (h *AuthHandler) HandleSignIn(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if !h.ensureDependencies(w) {
 		return
 	}
 
@@ -286,6 +298,10 @@ func (h *AuthHandler) HandleLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !h.ensureDependencies(w) {
+		return
+	}
+
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
 		http.Error(w, "Authorization header required", http.StatusUnauthorized)
@@ -330,4 +346,12 @@ func (h *AuthHandler) generateAccessToken(userID uuid.UUID) (string, time.Time, 
 
 func normalizeEmail(email string) string {
 	return strings.TrimSpace(strings.ToLower(email))
+}
+
+func (h *AuthHandler) ensureDependencies(w http.ResponseWriter) bool {
+	if h.userRepo == nil || h.playerRepo == nil || h.sessionRepo == nil {
+		http.Error(w, "Authentication service unavailable", http.StatusServiceUnavailable)
+		return false
+	}
+	return true
 }
