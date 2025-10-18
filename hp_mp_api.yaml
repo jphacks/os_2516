@@ -1,0 +1,323 @@
+openapi: 3.0.3
+info:
+  title: Real Fighting Game API
+  description: リアルファイティングゲームのHP/MP管理API
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: support@realfightinggame.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8080
+    description: 開発環境
+  - url: https://api.realfightinggame.com
+    description: 本番環境
+
+tags:
+  - name: Game - HP Management
+    description: ゲーム機能 - ヒットポイント（HP）の管理
+  - name: Game - MP Management
+    description: ゲーム機能 - マジックポイント（MP）の管理
+
+paths:
+  /api/hp:
+    get:
+      tags:
+        - Game - HP Management
+      summary: HP取得
+      description: ログインしているユーザーの現在のHPを取得します
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: HP取得成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HPResponse'
+              example:
+                hp: 150
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/UserNotFoundError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/hp/update:
+    put:
+      tags:
+        - Game - HP Management
+      summary: HP更新
+      description: ログインしているユーザーのHPを更新します
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateHPRequest'
+            example:
+              hp: 250
+      responses:
+        '200':
+          description: HP更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HPResponse'
+              example:
+                hp: 250
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/UserNotFoundError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/mp:
+    get:
+      tags:
+        - Game - MP Management
+      summary: MP取得
+      description: ログインしているユーザーの現在のMPを取得します
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: MP取得成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MPResponse'
+              example:
+                mp: 200
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/UserNotFoundError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/mp/update:
+    put:
+      tags:
+        - Game - MP Management
+      summary: MP更新
+      description: ログインしているユーザーのMPを更新します
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMPRequest'
+            example:
+              mp: 300
+      responses:
+        '200':
+          description: MP更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MPResponse'
+              example:
+                mp: 300
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/UserNotFoundError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWTトークンによる認証
+
+  schemas:
+    HPResponse:
+      type: object
+      required:
+        - hp
+      properties:
+        hp:
+          type: integer
+          minimum: 0
+          maximum: 1000
+          description: ヒットポイント
+          example: 150
+
+    MPResponse:
+      type: object
+      required:
+        - mp
+      properties:
+        mp:
+          type: integer
+          minimum: 0
+          maximum: 1000
+          description: マジックポイント
+          example: 200
+
+    UpdateHPRequest:
+      type: object
+      required:
+        - hp
+      properties:
+        hp:
+          type: integer
+          minimum: 0
+          maximum: 1000
+          description: 更新するヒットポイント
+          example: 250
+
+    UpdateMPRequest:
+      type: object
+      required:
+        - mp
+      properties:
+        mp:
+          type: integer
+          minimum: 0
+          maximum: 1000
+          description: 更新するマジックポイント
+          example: 300
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: エラータイプ
+          example: "validation_error"
+        message:
+          type: string
+          description: エラーメッセージ
+          example: "HP must be between 0 and 1000"
+        details:
+          type: object
+          description: エラーの詳細情報
+          additionalProperties: true
+
+  responses:
+    BadRequestError:
+      description: リクエストが不正です
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            validation_error:
+              summary: バリデーションエラー
+              value:
+                error: "validation_error"
+                message: "HP must be between 0 and 1000"
+            invalid_request:
+              summary: 不正なリクエスト
+              value:
+                error: "invalid_request"
+                message: "Invalid request body"
+
+    UnauthorizedError:
+      description: 認証が必要です
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            missing_token:
+              summary: トークンなし
+              value:
+                error: "unauthorized"
+                message: "Authorization header required"
+            invalid_token:
+              summary: 無効なトークン
+              value:
+                error: "unauthorized"
+                message: "Invalid token"
+            expired_session:
+              summary: セッション期限切れ
+              value:
+                error: "unauthorized"
+                message: "Session expired"
+
+    UserNotFoundError:
+      description: ユーザーが見つかりません
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "user_not_found"
+            message: "User not found"
+
+    InternalServerError:
+      description: サーバー内部エラー
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            update_failed:
+              summary: 更新失敗
+              value:
+                error: "internal_error"
+                message: "Failed to update HP"
+            database_error:
+              summary: データベースエラー
+              value:
+                error: "internal_error"
+                message: "Database connection failed"
+
+  examples:
+    HPGetSuccess:
+      summary: HP取得成功例
+      value:
+        hp: 150
+
+    HPUpdateSuccess:
+      summary: HP更新成功例
+      value:
+        hp: 250
+
+    MPGetSuccess:
+      summary: MP取得成功例
+      value:
+        mp: 200
+
+    MPUpdateSuccess:
+      summary: MP更新成功例
+      value:
+        mp: 300
+
+    ValidationError:
+      summary: バリデーションエラー例
+      value:
+        error: "validation_error"
+        message: "HP must be between 0 and 1000"
+
+    UnauthorizedError:
+      summary: 認証エラー例
+      value:
+        error: "unauthorized"
+        message: "Authorization header required"
+
+externalDocs:
+  description: Real Fighting Game API Documentation
+  url: https://docs.realfightinggame.com

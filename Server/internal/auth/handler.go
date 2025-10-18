@@ -28,6 +28,8 @@ type UserRepository interface {
 	GetUserByAppleID(ctx context.Context, appleID string) (*entities.User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (*entities.User, error)
 	UpdateUser(ctx context.Context, user *entities.User) error
+	UpdateUserHP(ctx context.Context, userID uuid.UUID, hp int) error
+	UpdateUserMP(ctx context.Context, userID uuid.UUID, mp int) error
 }
 
 // SessionRepository はセッションリポジトリのインターフェースです
