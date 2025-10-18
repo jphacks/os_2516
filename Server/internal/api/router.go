@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/gorilla/websocket"
+
 	"server/internal/supabase"
 )
 
@@ -17,6 +19,7 @@ func NewRouter(supabaseClient supabase.Client) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", handler.health)
 	mux.HandleFunc("/supabase/health", handler.supabaseHealth)
+	mux.HandleFunc("/ws", handler.websocket)
 
 	return loggingMiddleware(mux)
 }
@@ -24,6 +27,12 @@ func NewRouter(supabaseClient supabase.Client) http.Handler {
 // Handler は HTTP ハンドラ群をまとめます。
 type Handler struct {
 	supabase supabase.Client
+}
+
+var wsUpgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
 }
 
 func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
@@ -64,6 +73,36 @@ func (h *Handler) supabaseHealth(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]string{
 		"status": payload.Status,
 	})
+}
+
+func (h *Handler) websocket(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w)
+		return
+	}
+
+	conn, err := wsUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("websocket upgrade failed: %v", err)
+		http.Error(w, "failed to upgrade connection", http.StatusBadRequest)
+		return
+	}
+	defer conn.Close()
+
+	for {
+		msgType, payload, err := conn.ReadMessage()
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Printf("websocket read error: %v", err)
+			}
+			return
+		}
+
+		if err := conn.WriteMessage(msgType, payload); err != nil {
+			log.Printf("websocket write error: %v", err)
+			return
+		}
+	}
 }
 
 func loggingMiddleware(next http.Handler) http.Handler {
