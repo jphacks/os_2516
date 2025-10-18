@@ -3,7 +3,6 @@ package auth
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"server/internal/domain/entities"
 
@@ -47,26 +46,4 @@ func (m *MockUserRepository) GetUserByID(ctx context.Context, id uuid.UUID) (*en
 func (m *MockUserRepository) UpdateUser(ctx context.Context, user *entities.User) error {
 	m.users[user.AppleID] = user
 	return nil
-}
-
-func (m *MockUserRepository) UpdateUserHP(ctx context.Context, userID uuid.UUID, hp int) error {
-	for _, user := range m.users {
-		if user.ID == userID {
-			user.HP = hp
-			user.UpdatedAt = time.Now()
-			return nil
-		}
-	}
-	return fmt.Errorf("user not found")
-}
-
-func (m *MockUserRepository) UpdateUserMP(ctx context.Context, userID uuid.UUID, mp int) error {
-	for _, user := range m.users {
-		if user.ID == userID {
-			user.MP = mp
-			user.UpdatedAt = time.Now()
-			return nil
-		}
-	}
-	return fmt.Errorf("user not found")
 }

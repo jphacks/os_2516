@@ -1,23 +1,33 @@
 package hpmp
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 
 	"server/internal/auth"
 	"server/internal/domain/entities"
+
+	"github.com/google/uuid"
 )
+
+// PlayerRepository はプレイヤーリポジトリのインターフェースです
+type PlayerRepository interface {
+	GetPlayerByUserID(ctx context.Context, userID uuid.UUID) (*entities.Player, error)
+	UpdatePlayerHP(ctx context.Context, playerID uuid.UUID, hp int) error
+	UpdatePlayerMP(ctx context.Context, playerID uuid.UUID, mp int) error
+}
 
 // HPMPHandler はHP/MP関連のHTTPハンドラーです
 type HPMPHandler struct {
-	userRepo auth.UserRepository
+	playerRepo PlayerRepository
 }
 
 // NewHPMPHandler は新しいHP/MPハンドラーを作成します
-func NewHPMPHandler(userRepo auth.UserRepository) *HPMPHandler {
+func NewHPMPHandler(playerRepo PlayerRepository) *HPMPHandler {
 	return &HPMPHandler{
-		userRepo: userRepo,
+		playerRepo: playerRepo,
 	}
 }
 
@@ -48,13 +58,13 @@ func (h *HPMPHandler) HandleGetHP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.getCurrentUser(r)
+	player, err := h.getCurrentPlayer(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 
-	response := HPResponse{HP: user.HP}
+	response := HPResponse{HP: player.HP}
 	h.respondJSON(w, response)
 }
 
@@ -65,13 +75,13 @@ func (h *HPMPHandler) HandleGetMP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.getCurrentUser(r)
+	player, err := h.getCurrentPlayer(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 
-	response := MPResponse{MP: user.MP}
+	response := MPResponse{MP: player.MP}
 	h.respondJSON(w, response)
 }
 
@@ -103,8 +113,15 @@ func (h *HPMPHandler) HandleUpdateHP(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
+	// プレイヤーを取得
+	player, err := h.playerRepo.GetPlayerByUserID(ctx, userID)
+	if err != nil {
+		http.Error(w, "Player not found", http.StatusNotFound)
+		return
+	}
+
 	// HPを更新
-	if err := h.userRepo.UpdateUserHP(ctx, userID, req.HP); err != nil {
+	if err := h.playerRepo.UpdatePlayerHP(ctx, player.ID, req.HP); err != nil {
 		http.Error(w, "Failed to update HP", http.StatusInternalServerError)
 		return
 	}
@@ -144,8 +161,15 @@ func (h *HPMPHandler) HandleUpdateMP(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
+	// プレイヤーを取得
+	player, err := h.playerRepo.GetPlayerByUserID(ctx, userID)
+	if err != nil {
+		http.Error(w, "Player not found", http.StatusNotFound)
+		return
+	}
+
 	// MPを更新
-	if err := h.userRepo.UpdateUserMP(ctx, userID, req.MP); err != nil {
+	if err := h.playerRepo.UpdatePlayerMP(ctx, player.ID, req.MP); err != nil {
 		http.Error(w, "Failed to update MP", http.StatusInternalServerError)
 		return
 	}
@@ -157,19 +181,19 @@ func (h *HPMPHandler) HandleUpdateMP(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// getCurrentUser は現在ログインしているユーザーを取得します
-func (h *HPMPHandler) getCurrentUser(r *http.Request) (*entities.User, error) {
+// getCurrentPlayer は現在ログインしているユーザーのプレイヤーを取得します
+func (h *HPMPHandler) getCurrentPlayer(r *http.Request) (*entities.Player, error) {
 	userID, ok := auth.GetUserIDFromContext(r.Context())
 	if !ok {
 		return nil, fmt.Errorf("user ID not found in context")
 	}
 
-	user, err := h.userRepo.GetUserByID(r.Context(), userID)
+	player, err := h.playerRepo.GetPlayerByUserID(r.Context(), userID)
 	if err != nil {
-		return nil, fmt.Errorf("user not found")
+		return nil, fmt.Errorf("player not found")
 	}
 
-	return user, nil
+	return player, nil
 }
 
 // respondJSON はJSONレスポンスを返します

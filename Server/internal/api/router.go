@@ -21,9 +21,11 @@ func NewRouter(supabaseClient supabase.Client, db *sql.DB, cfg *config.Config) h
 	// リポジトリを初期化
 	var userRepo auth.UserRepository
 	var sessionRepo auth.SessionRepository
+	var playerRepo hpmp.PlayerRepository
 	if db != nil {
 		userRepo = repository.NewUserRepository(db)
 		sessionRepo = repository.NewSessionRepository(db)
+		playerRepo = repository.NewPlayerRepository(db)
 	}
 
 	// Apple認証サービスを初期化
@@ -37,7 +39,7 @@ func NewRouter(supabaseClient supabase.Client, db *sql.DB, cfg *config.Config) h
 	authHandler := auth.NewAuthHandler(appleService, userRepo, sessionRepo, cfg.Auth.JWTSecret)
 
 	// HP/MPハンドラーを初期化
-	hpmpHandler := hpmp.NewHPMPHandler(userRepo)
+	hpmpHandler := hpmp.NewHPMPHandler(playerRepo)
 
 	// 認証ミドルウェアを初期化
 	authMiddleware := auth.NewAuthMiddleware(cfg.Auth.JWTSecret, sessionRepo)

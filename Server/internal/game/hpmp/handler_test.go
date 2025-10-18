@@ -15,25 +15,25 @@ import (
 	"github.com/google/uuid"
 )
 
-// createTestUser はテスト用のユーザーを作成します
-func createTestUser(id uuid.UUID, hp, mp int) *entities.User {
-	return &entities.User{
-		ID:        id,
-		AppleID:   "test.apple.id",
-		Email:     "test@example.com",
-		FullName:  "Test User",
-		HP:        hp,
-		MP:        mp,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+// createTestPlayer はテスト用のプレイヤーを作成します
+func createTestPlayer(userID uuid.UUID, hp, mp int) *entities.Player {
+	return &entities.Player{
+		ID:          uuid.New(),
+		UserID:      &userID,
+		DisplayName: "Test Player",
+		HP:          hp,
+		MP:          mp,
+		Rank:        0,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
 	}
 }
 
 func TestHPMPHandler_HandleGetHP(t *testing.T) {
 	userID := uuid.New()
-	user := createTestUser(userID, 150, 200)
-	mockRepo := auth.NewMockUserRepository()
-	mockRepo.CreateUser(context.Background(), user)
+	player := createTestPlayer(userID, 150, 200)
+	mockRepo := auth.NewMockPlayerRepository()
+	mockRepo.CreatePlayer(context.Background(), player)
 	handler := NewHPMPHandler(mockRepo)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/hp", nil)
@@ -58,9 +58,9 @@ func TestHPMPHandler_HandleGetHP(t *testing.T) {
 
 func TestHPMPHandler_HandleGetMP(t *testing.T) {
 	userID := uuid.New()
-	user := createTestUser(userID, 150, 200)
-	mockRepo := auth.NewMockUserRepository()
-	mockRepo.CreateUser(context.Background(), user)
+	player := createTestPlayer(userID, 150, 200)
+	mockRepo := auth.NewMockPlayerRepository()
+	mockRepo.CreatePlayer(context.Background(), player)
 	handler := NewHPMPHandler(mockRepo)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/mp", nil)
@@ -85,9 +85,9 @@ func TestHPMPHandler_HandleGetMP(t *testing.T) {
 
 func TestHPMPHandler_HandleUpdateHP(t *testing.T) {
 	userID := uuid.New()
-	user := createTestUser(userID, 100, 100)
-	mockRepo := auth.NewMockUserRepository()
-	mockRepo.CreateUser(context.Background(), user)
+	player := createTestPlayer(userID, 100, 100)
+	mockRepo := auth.NewMockPlayerRepository()
+	mockRepo.CreatePlayer(context.Background(), player)
 	handler := NewHPMPHandler(mockRepo)
 
 	// リクエストボディを作成
@@ -120,21 +120,21 @@ func TestHPMPHandler_HandleUpdateHP(t *testing.T) {
 	}
 
 	// データベースの更新を確認
-	updatedUser, err := mockRepo.GetUserByID(context.Background(), userID)
+	updatedPlayer, err := mockRepo.GetPlayerByUserID(context.Background(), userID)
 	if err != nil {
-		t.Fatalf("Failed to get updated user: %v", err)
+		t.Fatalf("Failed to get updated player: %v", err)
 	}
 
-	if updatedUser.HP != 250 {
-		t.Errorf("Expected updated HP 250, got %d", updatedUser.HP)
+	if updatedPlayer.HP != 250 {
+		t.Errorf("Expected updated HP 250, got %d", updatedPlayer.HP)
 	}
 }
 
 func TestHPMPHandler_HandleUpdateMP(t *testing.T) {
 	userID := uuid.New()
-	user := createTestUser(userID, 100, 100)
-	mockRepo := auth.NewMockUserRepository()
-	mockRepo.CreateUser(context.Background(), user)
+	player := createTestPlayer(userID, 100, 100)
+	mockRepo := auth.NewMockPlayerRepository()
+	mockRepo.CreatePlayer(context.Background(), player)
 	handler := NewHPMPHandler(mockRepo)
 
 	// リクエストボディを作成
@@ -167,21 +167,21 @@ func TestHPMPHandler_HandleUpdateMP(t *testing.T) {
 	}
 
 	// データベースの更新を確認
-	updatedUser, err := mockRepo.GetUserByID(context.Background(), userID)
+	updatedPlayer, err := mockRepo.GetPlayerByUserID(context.Background(), userID)
 	if err != nil {
-		t.Fatalf("Failed to get updated user: %v", err)
+		t.Fatalf("Failed to get updated player: %v", err)
 	}
 
-	if updatedUser.MP != 300 {
-		t.Errorf("Expected updated MP 300, got %d", updatedUser.MP)
+	if updatedPlayer.MP != 300 {
+		t.Errorf("Expected updated MP 300, got %d", updatedPlayer.MP)
 	}
 }
 
 func TestHPMPHandler_HandleUpdateHP_Validation(t *testing.T) {
 	userID := uuid.New()
-	user := createTestUser(userID, 100, 100)
-	mockRepo := auth.NewMockUserRepository()
-	mockRepo.CreateUser(context.Background(), user)
+	player := createTestPlayer(userID, 100, 100)
+	mockRepo := auth.NewMockPlayerRepository()
+	mockRepo.CreatePlayer(context.Background(), player)
 	handler := NewHPMPHandler(mockRepo)
 
 	testCases := []struct {
@@ -221,9 +221,9 @@ func TestHPMPHandler_HandleUpdateHP_Validation(t *testing.T) {
 
 func TestHPMPHandler_HandleUpdateMP_Validation(t *testing.T) {
 	userID := uuid.New()
-	user := createTestUser(userID, 100, 100)
-	mockRepo := auth.NewMockUserRepository()
-	mockRepo.CreateUser(context.Background(), user)
+	player := createTestPlayer(userID, 100, 100)
+	mockRepo := auth.NewMockPlayerRepository()
+	mockRepo.CreatePlayer(context.Background(), player)
 	handler := NewHPMPHandler(mockRepo)
 
 	testCases := []struct {
