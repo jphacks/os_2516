@@ -1,2 +1,3 @@
 .gocache/
 github-deployer.json
+.env

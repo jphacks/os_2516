@@ -22,6 +22,9 @@ docker build -t os2516-server:local .
 docker run --rm -p 8080:8080 \
   -e SUPABASE_DB_URL=$SUPABASE_DB_URL \
   os2516-server:local
+
+# ヘルスチェック
+curl http://localhost:8080/health
 ```
 
 ## Cloud Run デプロイ (GitHub Actions)
