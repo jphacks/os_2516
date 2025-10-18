@@ -41,10 +41,29 @@ graph TB
 
 ## Project Structure
 
+### Repository Layout (iOS + Backend Monorepo)
+
+```
+/
+├── design.md · requirements.md · tasks.md
+├── ios/
+│   └── RealFightingGame/
+│       ├── RealFightingGame.xcodeproj
+│       ├── RealFightingGame/        # アプリ本体
+│       ├── RealFightingGameTests/   # ユニットテスト
+│       └── RealFightingGameUITests/ # UIテスト
+├── Server/               # Go製バックエンド一式
+└── README.md · LICENSE · 設計書.md など
+```
+
+このリポジトリはモノレポを前提に、`ios/`配下でiOSクライアント、`Server/`配下でGoバックエンドを管理する。  
+共通仕様は `design.md`、要件変更は `requirements.md`、タスク状況は `tasks.md` に集約し、どちらのチームも参照できる状態を保つ。  
+クライアントとサーバー間でインターフェース定義が更新された場合は、対応するディレクトリで実装を行い、API契約の変更点をドキュメントに追記する。
+
 ### iOS Client Folder Structure
 
 ```
-RealFightingGame/
+ios/RealFightingGame/
 ├── App/
 │   ├── RealFightingGameApp.swift
 │   └── ContentView.swift
