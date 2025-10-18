@@ -11,6 +11,17 @@ BEGIN
 END
 $$;
 
+-- Player master (referenced by game users and events)
+CREATE TABLE IF NOT EXISTS public.players (
+    id UUID PRIMARY KEY,
+    user_id UUID UNIQUE REFERENCES public.users(id),
+    display_name TEXT NOT NULL,
+    rank SMALLINT DEFAULT 0,
+    avatar_url TEXT,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- Core session table (winner FK added after game_users creation)
 CREATE TABLE IF NOT EXISTS public.game_sessions (
     id UUID PRIMARY KEY,
