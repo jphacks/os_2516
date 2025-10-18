@@ -13,6 +13,7 @@ import (
 	domainbattlestage "server/internal/domain/battlestage"
 	"server/internal/auth"
 	"server/internal/config"
+	"server/internal/game/hpmp"
 	"server/internal/infrastructure/repository"
 	"server/internal/supabase"
 )
@@ -29,9 +30,11 @@ func NewRouter(supabaseClient supabase.Client, db *sql.DB, cfg *config.Config) h
 	// リポジトリを初期化
 	var userRepo auth.UserRepository
 	var sessionRepo auth.SessionRepository
+	var playerRepo hpmp.PlayerRepository
 	if db != nil {
 		userRepo = repository.NewUserRepository(db)
 		sessionRepo = repository.NewSessionRepository(db)
+		playerRepo = repository.NewPlayerRepository(db)
 	}
 
 	// Apple認証サービスを初期化
@@ -42,7 +45,10 @@ func NewRouter(supabaseClient supabase.Client, db *sql.DB, cfg *config.Config) h
 	)
 
 	// 認証ハンドラーを初期化
-	authHandler := auth.NewAuthHandler(appleService, userRepo, sessionRepo, cfg.Auth.JWTSecret)
+	authHandler := auth.NewAuthHandler(appleService, userRepo, playerRepo, sessionRepo, cfg.Auth.JWTSecret)
+
+	// HP/MPハンドラーを初期化
+	hpmpHandler := hpmp.NewHPMPHandler(playerRepo)
 
 	// 認証ミドルウェアを初期化
 	authMiddleware := auth.NewAuthMiddleware(cfg.Auth.JWTSecret, sessionRepo)
@@ -69,6 +75,12 @@ func NewRouter(supabaseClient supabase.Client, db *sql.DB, cfg *config.Config) h
 
 	// 保護されたエンドポイント（例）
 	mux.Handle("/api/protected", authMiddleware.RequireAuth(http.HandlerFunc(handler.protected)))
+
+	// HP/MP関連のエンドポイント
+	mux.Handle("/api/hp", authMiddleware.RequireAuth(http.HandlerFunc(hpmpHandler.HandleGetHP)))
+	mux.Handle("/api/hp/update", authMiddleware.RequireAuth(http.HandlerFunc(hpmpHandler.HandleUpdateHP)))
+	mux.Handle("/api/mp", authMiddleware.RequireAuth(http.HandlerFunc(hpmpHandler.HandleGetMP)))
+	mux.Handle("/api/mp/update", authMiddleware.RequireAuth(http.HandlerFunc(hpmpHandler.HandleUpdateMP)))
 
 	return corsMiddleware(cfg.CORS.AllowedOrigins, loggingMiddleware(mux))
 }

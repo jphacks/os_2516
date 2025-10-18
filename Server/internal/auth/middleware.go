@@ -12,6 +12,13 @@ import (
 	"github.com/google/uuid"
 )
 
+type contextKey string
+
+const (
+	UserIDKey  contextKey = "user_id"
+	sessionKey contextKey = "session"
+)
+
 // AuthMiddleware は認証ミドルウェアです
 type AuthMiddleware struct {
 	jwtSecret   string
@@ -68,8 +75,8 @@ func (m *AuthMiddleware) RequireAuth(next http.Handler) http.Handler {
 			return
 		}
 
-		ctx := context.WithValue(r.Context(), "user_id", userID)
-		ctx = context.WithValue(ctx, "session", session)
+		ctx := context.WithValue(r.Context(), UserIDKey, userID)
+		ctx = context.WithValue(ctx, sessionKey, session)
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
@@ -98,12 +105,12 @@ func (m *AuthMiddleware) validateToken(tokenString string) (jwt.MapClaims, error
 
 // GetUserIDFromContext はコンテキストからユーザーIDを取得します
 func GetUserIDFromContext(ctx context.Context) (uuid.UUID, bool) {
-	userID, ok := ctx.Value("user_id").(uuid.UUID)
+	userID, ok := ctx.Value(UserIDKey).(uuid.UUID)
 	return userID, ok
 }
 
 // GetSessionFromContext はコンテキストからセッションを取得します
 func GetSessionFromContext(ctx context.Context) (*entities.Session, bool) {
-	session, ok := ctx.Value("session").(*entities.Session)
+	session, ok := ctx.Value(sessionKey).(*entities.Session)
 	return session, ok
 }
