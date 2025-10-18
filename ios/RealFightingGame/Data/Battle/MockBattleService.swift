@@ -27,6 +27,12 @@ actor MockBattleService: BattleService {
     private var state: BattleState?
     private let config: Config
     private var guardActive: Bool = false
+    private var guardRemaining: Double = 0 // seconds
+    private var enemyCooldown: Double = 0 // seconds
+    private var streamCont: AsyncStream<BattleState>.Continuation?
+    private var streamCache: AsyncStream<BattleState>?
+    private var tickTask: Task<Void, Never>?
+    private var pendingActions: [BattleAction] = []
 
     init(config: Config = .init()) {
         self.config = config
@@ -46,116 +52,128 @@ actor MockBattleService: BattleService {
         // 特殊は開始時点で使用可能にしておく（最小モック）
         initial.chantProgress = 1
         state = initial
+        startTickIfNeeded()
         try? await Task.sleep(nanoseconds: config.latencyMs * 1_000_000)
+        publish()
         return initial
     }
 
     func perform(action: BattleAction) async throws -> BattleState {
-        guard var current = state else {
-            throw NSError(domain: "MockBattleService", code: 1, userInfo: [NSLocalizedDescriptionKey: "Not joined"])
+        // 互換API: sendして即時スナップショットを返す
+        await send(action)
+        return state!
+    }
+
+    func send(_ action: BattleAction) async {
+        pendingActions.append(action)
+    }
+
+    func states() async -> AsyncStream<BattleState> {
+        if let s = streamCache { return s }
+        let stream = AsyncStream<BattleState> { cont in
+            Task { [weak self] in
+                await self?.setContinuation(cont)
+            }
         }
+        streamCache = stream
+        return stream
+    }
 
-        try? await Task.sleep(nanoseconds: config.latencyMs * 1_000_000)
+    private func setContinuation(_ cont: AsyncStream<BattleState>.Continuation) {
+        streamCont = cont
+        if let s = state { cont.yield(s) }
+    }
 
-        switch action {
-        case .attack:
-            // プレイヤー攻撃
-            let playerDmg = Int.random(in: config.playerDamageRange)
-            let newEnemyHP = max(0, current.opponentStatus.hp - playerDmg)
-            current.opponentStatus = BattleParticipant(
-                displayName: current.opponentStatus.displayName,
-                hp: newEnemyHP,
-                maxHp: current.opponentStatus.maxHp,
-                mana: current.opponentStatus.mana,
-                maxMana: current.opponentStatus.maxMana
-            )
+    private func publish() {
+        if let s = state { streamCont?.yield(s) }
+    }
 
-            if current.opponentStatus.hp <= 0 {
-                state = current
-                return current
+    private func startTickIfNeeded() {
+        guard tickTask == nil else { return }
+        let interval: Double = 0.2 // seconds
+        tickTask = Task { [weak self] in
+            guard let self else { return }
+            while true {
+                try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+                await self.tick(delta: interval)
             }
+        }
+    }
 
-            // 敵の反撃
-            let enemyDmg = Int.random(in: config.enemyDamageRange)
-            let newSelfHP = max(0, current.selfStatus.hp - enemyDmg)
-            current.selfStatus = BattleParticipant(
-                displayName: current.selfStatus.displayName,
-                hp: newSelfHP,
-                maxHp: current.selfStatus.maxHp,
-                mana: current.selfStatus.mana,
-                maxMana: current.selfStatus.maxMana
-            )
-            // ターン終了処理（ゲージ進行）
-            current.chantProgress = min(1, current.chantProgress + config.specialChargePerTurn)
-            current.runEnergy = max(0, current.runEnergy - 0.2)
-            state = current
-            return current
+    private func tick(delta: Double) async {
+        guard var current = state, current.selfStatus.hp > 0, current.opponentStatus.hp > 0 else { return }
 
-        case .guard:
-            // 守りの姿勢：次の被ダメージを半減
-            guardActive = true
-            current.runEnergy = 1
-
-            // 敵の攻撃のみ（プレイヤーの与ダメなし）
-            var enemyDmg = Int.random(in: config.enemyDamageRange)
-            if guardActive {
-                enemyDmg = Int(ceil(Double(enemyDmg) * 0.5))
-            }
-            let newSelfHP = max(0, current.selfStatus.hp - enemyDmg)
-            current.selfStatus = BattleParticipant(
-                displayName: current.selfStatus.displayName,
-                hp: newSelfHP,
-                maxHp: current.selfStatus.maxHp,
-                mana: current.selfStatus.mana,
-                maxMana: current.selfStatus.maxMana
-            )
-            guardActive = false
-            // ゲージ調整
-            current.chantProgress = min(1, current.chantProgress + 0.3)
+        // 自然回復・減衰
+        current.chantProgress = min(1, current.chantProgress + config.specialChargePerTurn * delta) // 約0.5/秒ベース
+        if guardRemaining > 0 {
+            guardRemaining = max(0, guardRemaining - delta)
+            current.runEnergy = max(0, min(1, guardRemaining / 1.5))
+        } else {
             current.runEnergy = 0
+        }
 
-            state = current
-            return current
-
-        case .special:
-            // 特殊攻撃：固定ダメージ。チャージ未満なら攻撃不発（状態は据え置き）
-            guard current.chantProgress >= 1 else {
-                return current
+        // プレイヤー入力処理（非同期に蓄積されたものを消費）
+        if !pendingActions.isEmpty {
+            for action in pendingActions {
+                switch action {
+                case .attack:
+                    let dmg = Int.random(in: config.playerDamageRange)
+                    let newEnemyHP = max(0, current.opponentStatus.hp - dmg)
+                    current.opponentStatus = BattleParticipant(
+                        displayName: current.opponentStatus.displayName,
+                        hp: newEnemyHP,
+                        maxHp: current.opponentStatus.maxHp,
+                        mana: current.opponentStatus.mana,
+                        maxMana: current.opponentStatus.maxMana
+                    )
+                case .guard:
+                    guardActive = true
+                    guardRemaining = 1.5 // 1.5秒の防御有効時間
+                    current.runEnergy = 1
+                case .special:
+                    if current.chantProgress >= 1 {
+                        let newEnemyHP = max(0, current.opponentStatus.hp - config.specialDamage)
+                        current.opponentStatus = BattleParticipant(
+                            displayName: current.opponentStatus.displayName,
+                            hp: newEnemyHP,
+                            maxHp: current.opponentStatus.maxHp,
+                            mana: current.opponentStatus.mana,
+                            maxMana: current.opponentStatus.maxMana
+                        )
+                        current.chantProgress = 0
+                    }
+                }
             }
-            let dmg = config.specialDamage
-            let newEnemyHP = max(0, current.opponentStatus.hp - dmg)
-            current.opponentStatus = BattleParticipant(
-                displayName: current.opponentStatus.displayName,
-                hp: newEnemyHP,
-                maxHp: current.opponentStatus.maxHp,
-                mana: current.opponentStatus.mana,
-                maxMana: current.opponentStatus.maxMana
-            )
-            // チャージ消費
-            current.chantProgress = 0
+            pendingActions.removeAll(keepingCapacity: true)
+        }
 
-            if current.opponentStatus.hp <= 0 {
-                state = current
-                return current
-            }
-
-            // 敵の反撃（通常）
-            let enemyDmg2 = Int.random(in: config.enemyDamageRange)
-            let newSelfHP2 = max(0, current.selfStatus.hp - enemyDmg2)
+        // 敵AI（クールダウンで周期攻撃）
+        if enemyCooldown > 0 { enemyCooldown = max(0, enemyCooldown - delta) }
+        if enemyCooldown == 0 && current.opponentStatus.hp > 0 {
+            var enemyDmg = Int.random(in: config.enemyDamageRange)
+            if guardActive || guardRemaining > 0 { enemyDmg = Int(ceil(Double(enemyDmg) * 0.5)) }
+            let newSelfHP = max(0, current.selfStatus.hp - enemyDmg)
             current.selfStatus = BattleParticipant(
                 displayName: current.selfStatus.displayName,
-                hp: newSelfHP2,
+                hp: newSelfHP,
                 maxHp: current.selfStatus.maxHp,
                 mana: current.selfStatus.mana,
                 maxMana: current.selfStatus.maxMana
             )
-
-            state = current
-            return current
+            enemyCooldown = 1.2
+            guardActive = false // 一撃軽減を消費
         }
+
+        state = current
+        publish()
     }
 
     func end() async {
         state = nil
+        streamCont?.finish()
+        streamCont = nil
+        streamCache = nil
+        tickTask?.cancel()
+        tickTask = nil
     }
 }
