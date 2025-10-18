@@ -1,4 +1,6 @@
 .DS_Store
 .env
 
-ios/RealFightingGame/RealFightingGame.xcodeproj/xcuserdata/
+# Xcode user-specific data
+ios/RealFightingGame.xcodeproj/xcuserdata/
+ios/RealFightingGame.xcodeproj/project.xcworkspace/xcuserdata/
