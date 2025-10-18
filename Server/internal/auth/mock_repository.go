@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"server/internal/domain/entities"
 
@@ -22,12 +23,13 @@ func NewMockUserRepository() *MockUserRepository {
 }
 
 func (m *MockUserRepository) CreateUser(ctx context.Context, user *entities.User) error {
-	m.users[user.AppleID] = user
+	email := strings.ToLower(user.Email)
+	m.users[email] = user
 	return nil
 }
 
-func (m *MockUserRepository) GetUserByAppleID(ctx context.Context, appleID string) (*entities.User, error) {
-	user, exists := m.users[appleID]
+func (m *MockUserRepository) GetUserByEmail(ctx context.Context, email string) (*entities.User, error) {
+	user, exists := m.users[strings.ToLower(email)]
 	if !exists {
 		return nil, fmt.Errorf("user not found")
 	}
@@ -44,6 +46,6 @@ func (m *MockUserRepository) GetUserByID(ctx context.Context, id uuid.UUID) (*en
 }
 
 func (m *MockUserRepository) UpdateUser(ctx context.Context, user *entities.User) error {
-	m.users[user.AppleID] = user
+	m.users[strings.ToLower(user.Email)] = user
 	return nil
 }

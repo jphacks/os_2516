@@ -26,10 +26,7 @@ type DatabaseConfig struct {
 
 // AuthConfig は認証設定です
 type AuthConfig struct {
-	JWTSecret     string
-	AppleClientID string
-	AppleTeamID   string
-	AppleKeyID    string
+	JWTSecret string
 }
 
 // CORSConfig はCORS設定です
@@ -47,10 +44,7 @@ func Load() (*Config, error) {
 			URL: getEnv("DATABASE_URL", ""),
 		},
 		Auth: AuthConfig{
-			JWTSecret:     getEnv("JWT_SECRET", ""),
-			AppleClientID: getEnv("APPLE_CLIENT_ID", ""),
-			AppleTeamID:   getEnv("APPLE_TEAM_ID", ""),
-			AppleKeyID:    getEnv("APPLE_KEY_ID", ""),
+			JWTSecret: getEnv("JWT_SECRET", ""),
 		},
 		CORS: CORSConfig{
 			AllowedOrigins: getEnvSlice("CORS_ALLOWED_ORIGINS", []string{"*"}),
@@ -69,18 +63,6 @@ func Load() (*Config, error) {
 func (c *Config) Validate() error {
 	if c.Auth.JWTSecret == "" {
 		return fmt.Errorf("JWT_SECRET is required")
-	}
-
-	if c.Auth.AppleClientID == "" {
-		return fmt.Errorf("APPLE_CLIENT_ID is required")
-	}
-
-	if c.Auth.AppleTeamID == "" {
-		return fmt.Errorf("APPLE_TEAM_ID is required")
-	}
-
-	if c.Auth.AppleKeyID == "" {
-		return fmt.Errorf("APPLE_KEY_ID is required")
 	}
 
 	return nil
