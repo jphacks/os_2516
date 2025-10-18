@@ -5,32 +5,41 @@ import MapKit
 final class MapViewModelTests: XCTestCase {
 
     @MainActor
-    func testRefreshPins_success() async throws {
+    func testLoadPins_success() async throws {
         let vm = MapViewModel(service: MockMapService(mode: .success, latencyMs: 0, failureRate: 0, useFixture: false),
                               region: .defaultRegion)
-        vm.refreshPins()
+        vm.loadPins()
         try await Task.sleep(nanoseconds: 50_000_000)
-        XCTAssertFalse(vm.destinations.isEmpty)
+        guard case let .success(pins) = vm.pinsState else {
+            return XCTFail("期待: success")
+        }
+        XCTAssertFalse(pins.isEmpty)
         XCTAssertNotNil(vm.userLocationPin)
     }
 
     @MainActor
-    func testRefreshPins_empty() async throws {
+    func testLoadPins_empty() async throws {
         let vm = MapViewModel(service: MockMapService(mode: .empty, latencyMs: 0, failureRate: 0),
                               region: .defaultRegion)
-        vm.refreshPins()
+        vm.loadPins()
         try await Task.sleep(nanoseconds: 50_000_000)
-        XCTAssertTrue(vm.destinations.isEmpty)
-        XCTAssertNotNil(vm.userLocationPin)
+        if case .empty = vm.pinsState {
+            XCTAssertNotNil(vm.userLocationPin)
+        } else {
+            XCTFail("期待: empty")
+        }
     }
 
     @MainActor
-    func testRefreshPins_error() async throws {
+    func testLoadPins_error() async throws {
         let vm = MapViewModel(service: MockMapService(mode: .error, latencyMs: 0, failureRate: 0),
                               region: .defaultRegion)
-        vm.refreshPins()
+        vm.loadPins()
         try await Task.sleep(nanoseconds: 50_000_000)
-        XCTAssertTrue(vm.destinations.isEmpty)
-        XCTAssertNil(vm.userLocationPin)
+        if case .failure = vm.pinsState {
+            XCTAssertNil(vm.userLocationPin)
+        } else {
+            XCTFail("期待: failure")
+        }
     }
 }

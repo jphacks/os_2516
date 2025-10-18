@@ -13,39 +13,41 @@ struct MapView: View {
     }
 
     var body: some View {
-        Map(position: $cameraPosition, interactionModes: [.all]) {
-            if let userPin = viewModel.userLocationPin {
-                Annotation("現在地", coordinate: userPin.coordinate, anchor: .center) {
-                    userLocationView
+        ZStack {
+            Map(position: $cameraPosition, interactionModes: [.all]) {
+                if let userPin = viewModel.userLocationPin {
+                    Annotation("現在地", coordinate: userPin.coordinate, anchor: .center) {
+                        userLocationView
+                    }
+                }
+                ForEach(viewModel.pinsState.data ?? []) { pin in
+                    Marker(pin.title, coordinate: pin.coordinate)
+                        .tint(.purple)
                 }
             }
-            ForEach(viewModel.destinations) { pin in
-                Marker(pin.title, coordinate: pin.coordinate)
-                    .tint(.purple)
+            .mapStyle(.standard)
+            .ignoresSafeArea(edges: .bottom)
+            .simultaneousGesture(DragGesture().onChanged { _ in viewModel.userDidPanMap() })
+            .onMapCameraChange { context in
+                viewModel.handleRegionChangeFromMap(context.region)
             }
+            .onAppear {
+                if case .idle = viewModel.pinsState {
+                    viewModel.loadPins(force: true)
+                }
+                viewModel.startTrackingUserLocation()
+            }
+            .onDisappear {
+                viewModel.stopTrackingUserLocation()
+            }
+
+            overlayStateView
         }
-        .mapStyle(.standard)
-        .ignoresSafeArea(edges: .bottom)
         .overlay(alignment: .top) { mapOverlay.padding() }
         .overlay(alignment: .bottomTrailing) {
             recenterButton
                 .padding(.trailing, 16)
                 .padding(.bottom, 24)
-        }
-        .simultaneousGesture(DragGesture().onChanged { _ in viewModel.userDidPanMap() })
-        .onMapCameraChange { context in
-            viewModel.handleRegionChangeFromMap(context.region)
-        }
-        .task {
-            if viewModel.destinations.isEmpty {
-                viewModel.refreshPins()
-            }
-        }
-        .onAppear {
-            viewModel.startTrackingUserLocation()
-        }
-        .onDisappear {
-            viewModel.stopTrackingUserLocation()
         }
         .onReceive(viewModel.$region.dropFirst()) { region in
             cameraPosition = .region(region)
@@ -107,3 +109,36 @@ struct MapView: View {
     )
 }
 #endif
+
+@available(iOS 17.0, *)
+private extension MapView {
+    @ViewBuilder
+    var overlayStateView: some View {
+        switch viewModel.pinsState {
+        case .loading:
+            ProgressView()
+                .progressViewStyle(.circular)
+                .padding(16)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        case .failure:
+            VStack(spacing: 8) {
+                Text("読み込みに失敗しました")
+                    .font(.headline)
+                Button("再試行") {
+                    viewModel.loadPins(force: true)
+                }
+            }
+            .padding(16)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        case .empty:
+            VStack(spacing: 8) {
+                Image(systemName: "mappin.slash.circle.fill").font(.largeTitle)
+                Text("付近にスポットがありません")
+            }
+            .padding(16)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        default:
+            EmptyView()
+        }
+    }
+}

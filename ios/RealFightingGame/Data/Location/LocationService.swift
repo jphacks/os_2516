@@ -1,6 +1,5 @@
 import CoreLocation
 import Foundation
-import OSLog
 
 protocol LocationService {
     func requestWhenInUseAuthorization() async
@@ -13,7 +12,6 @@ final class CoreLocationService: NSObject, LocationService, CLLocationManagerDel
     private let manager = CLLocationManager()
     private var singleLocationContinuation: CheckedContinuation<CLLocationCoordinate2D, Error>?
     private var streamContinuation: AsyncStream<Result<CLLocationCoordinate2D, Error>>.Continuation?
-    private let logger = Logger(subsystem: "RealFightingGame", category: "LocationService")
 
     override init() {
         super.init()
@@ -37,10 +35,7 @@ final class CoreLocationService: NSObject, LocationService, CLLocationManagerDel
 
     func currentLocation() async throws -> CLLocationCoordinate2D {
         if let cached = manager.location, isLocationAcceptable(cached) {
-            logger.debug("currentLocation immediate lat: \(cached.coordinate.latitude), lon: \(cached.coordinate.longitude), acc: \(cached.horizontalAccuracy)")
             return cached.coordinate
-        } else if let cached = manager.location {
-            logger.debug("currentLocation cached ignored age: \(Date().timeIntervalSince(cached.timestamp)), acc: \(cached.horizontalAccuracy)")
         }
 
         return try await withCheckedThrowingContinuation { continuation in
@@ -77,15 +72,11 @@ final class CoreLocationService: NSObject, LocationService, CLLocationManagerDel
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let latest = locations.last else { return }
-        guard isLocationAcceptable(latest) else {
-            logger.debug("locationUpdates ignored lat: \(latest.coordinate.latitude), lon: \(latest.coordinate.longitude), acc: \(latest.horizontalAccuracy)")
-            return
-        }
+        guard isLocationAcceptable(latest) else { return }
         if let continuation = singleLocationContinuation {
             singleLocationContinuation = nil
             continuation.resume(returning: latest.coordinate)
         }
-        logger.debug("locationUpdates stream lat: \(latest.coordinate.latitude), lon: \(latest.coordinate.longitude), acc: \(latest.horizontalAccuracy)")
         streamContinuation?.yield(.success(latest.coordinate))
     }
 
@@ -108,7 +99,6 @@ struct MockLocationService: LocationService {
     let coordinate: CLLocationCoordinate2D
     let updates: [CLLocationCoordinate2D]
     let updateIntervalNanoseconds: UInt64
-    private let logger = Logger(subsystem: "RealFightingGame", category: "MockLocationService")
 
     init(
         coordinate: CLLocationCoordinate2D = .init(latitude: 34.651562, longitude: 135.591204),
@@ -123,7 +113,6 @@ struct MockLocationService: LocationService {
     func requestWhenInUseAuthorization() async {}
 
     func currentLocation() async throws -> CLLocationCoordinate2D {
-        logger.debug("[Mock] currentLocation lat: \(coordinate.latitude), lon: \(coordinate.longitude)")
         return coordinate
     }
 
@@ -132,7 +121,6 @@ struct MockLocationService: LocationService {
         return AsyncStream { continuation in
             Task {
                 for coord in sequence {
-                    logger.debug("[Mock] locationUpdates stream lat: \(coord.latitude), lon: \(coord.longitude)")
                     continuation.yield(.success(coord))
                     if updateIntervalNanoseconds > 0 {
                         try await Task.sleep(nanoseconds: updateIntervalNanoseconds)

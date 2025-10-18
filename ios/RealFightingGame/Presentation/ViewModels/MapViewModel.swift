@@ -5,7 +5,7 @@ import MapKit
 @MainActor
 final class MapViewModel: ObservableObject {
     @Published var region: MKCoordinateRegion
-    @Published var destinations: [MapPin]
+    @Published private(set) var pinsState: ViewState<[MapPin]> = .idle
     @Published var userLocationPin: MapPin?
     @Published var isFollowingUser = true
 
@@ -13,39 +13,55 @@ final class MapViewModel: ObservableObject {
     private let locationService: LocationService?
     private var loadTask: Task<Void, Never>?
     private var locationStreamTask: Task<Void, Never>?
+    private var regionDebounceTask: Task<Void, Never>?
     private var isApplyingProgrammaticRegionChange = false
 
     init(service: MapService,
          locationService: LocationService? = nil,
          region: MKCoordinateRegion = .defaultRegion,
-         destinations: [MapPin] = [],
+         initialPins: [MapPin] = [],
          userLocationPin: MapPin? = nil) {
         self.service = service
         self.locationService = locationService
         self.region = region
-        self.destinations = destinations
         self.userLocationPin = userLocationPin
+        if initialPins.isEmpty {
+            pinsState = .idle
+        } else {
+            pinsState = .success(initialPins)
+        }
     }
 
-    func refreshPins() {
+    deinit {
         loadTask?.cancel()
+        locationStreamTask?.cancel()
+        regionDebounceTask?.cancel()
+    }
+
+    func loadPins(force: Bool = false) {
+        if case .loading = pinsState { return }
+        if case .success = pinsState, !force { return }
+
+        loadTask?.cancel()
+        pinsState = .loading
         loadTask = Task { [region] in
             do {
                 let result = try await service.fetchPins(in: region)
                 guard !Task.isCancelled else { return }
-                self.destinations = result.spots
-                if locationService == nil, let userPin = result.userLocation {
+
+                if let userPin = result.userLocation, locationService == nil {
                     self.userLocationPin = userPin
-                    if self.isFollowingUser {
-                        self.setRegion(userPin.coordinate, span: self.region.span)
-                    }
+                }
+
+                let pins = result.spots
+                if pins.isEmpty {
+                    self.pinsState = .empty
+                } else {
+                    self.pinsState = .success(pins)
                 }
             } catch {
                 guard !Task.isCancelled else { return }
-                self.destinations = [] // M0は簡易に空へフォールバック
-                if locationService == nil {
-                    self.userLocationPin = nil
-                }
+                self.pinsState = .failure(error)
             }
         }
     }
@@ -62,25 +78,25 @@ final class MapViewModel: ObservableObject {
             for await update in updates {
                 if Task.isCancelled { break }
                 switch update {
-               case .success(let coordinate):
-                   await MainActor.run {
-                       let pin = MapPin(title: "現在地", coordinate: coordinate)
-                       self.userLocationPin = pin
-                       if self.isFollowingUser {
-                           self.setRegion(
-                               coordinate,
-                               span: MKCoordinateSpan(
-                                   latitudeDelta: max(0.008, self.region.span.latitudeDelta),
-                                   longitudeDelta: max(0.008, self.region.span.longitudeDelta)
-                               )
-                           )
-                       }
-                        self.refreshPins()
-                   }
-               case .failure:
-                   continue
-               }
-           }
+                case .success(let coordinate):
+                    await MainActor.run {
+                        let pin = MapPin(title: "現在地", coordinate: coordinate)
+                        self.userLocationPin = pin
+                        if self.isFollowingUser {
+                            self.setRegion(
+                                coordinate,
+                                span: MKCoordinateSpan(
+                                    latitudeDelta: max(0.008, self.region.span.latitudeDelta),
+                                    longitudeDelta: max(0.008, self.region.span.longitudeDelta)
+                                )
+                            )
+                            self.loadPins(force: true)
+                        }
+                    }
+                case .failure:
+                    continue
+                }
+            }
         }
     }
 
@@ -100,6 +116,7 @@ final class MapViewModel: ObservableObject {
                     longitudeDelta: max(0.008, region.span.longitudeDelta)
                 )
             )
+            loadPins(force: true)
             return
         }
 
@@ -117,11 +134,11 @@ final class MapViewModel: ObservableObject {
                     longitudeDelta: max(0.008, self.region.span.longitudeDelta)
                 )
             )
+            self.loadPins(force: true)
         }
     }
 
     func userDidPanMap() {
-        guard locationService != nil else { return }
         isFollowingUser = false
     }
 
@@ -129,6 +146,7 @@ final class MapViewModel: ObservableObject {
         region = newRegion
         if !isApplyingProgrammaticRegionChange {
             userDidPanMap()
+            scheduleRegionDebounceLoad()
         }
     }
 
@@ -137,6 +155,17 @@ final class MapViewModel: ObservableObject {
         region = MKCoordinateRegion(center: coordinate, span: span)
         DispatchQueue.main.async { [weak self] in
             self?.isApplyingProgrammaticRegionChange = false
+        }
+    }
+
+    private func scheduleRegionDebounceLoad() {
+        regionDebounceTask?.cancel()
+        regionDebounceTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard let self else { return }
+            await MainActor.run {
+                self.loadPins()
+            }
         }
     }
 }
