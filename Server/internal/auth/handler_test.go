@@ -61,8 +61,11 @@ func TestAuthHandler_HandleAppleSignIn(t *testing.T) {
 	// Apple認証サービス（実際の検証は行わない）
 	appleService := NewAppleAuthService("com.test.app", "TEAM123", "KEY123")
 
+	// モックプレイヤーリポジトリを作成
+	playerRepo := NewMockPlayerRepository()
+
 	// 認証ハンドラーを作成
-	handler := NewAuthHandler(appleService, userRepo, sessionRepo, "test-secret")
+	handler := NewAuthHandler(appleService, userRepo, playerRepo, sessionRepo, "test-secret")
 
 	tests := []struct {
 		name           string
@@ -107,8 +110,11 @@ func TestAuthHandler_HandleLogout(t *testing.T) {
 	// Apple認証サービス
 	appleService := NewAppleAuthService("com.test.app", "TEAM123", "KEY123")
 
+	// モックプレイヤーリポジトリを作成
+	playerRepo := NewMockPlayerRepository()
+
 	// 認証ハンドラーを作成
-	handler := NewAuthHandler(appleService, userRepo, sessionRepo, "test-secret")
+	handler := NewAuthHandler(appleService, userRepo, playerRepo, sessionRepo, "test-secret")
 
 	tests := []struct {
 		name           string

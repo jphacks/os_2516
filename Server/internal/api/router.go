@@ -36,7 +36,7 @@ func NewRouter(supabaseClient supabase.Client, db *sql.DB, cfg *config.Config) h
 	)
 
 	// 認証ハンドラーを初期化
-	authHandler := auth.NewAuthHandler(appleService, userRepo, sessionRepo, cfg.Auth.JWTSecret)
+	authHandler := auth.NewAuthHandler(appleService, userRepo, playerRepo, sessionRepo, cfg.Auth.JWTSecret)
 
 	// HP/MPハンドラーを初期化
 	hpmpHandler := hpmp.NewHPMPHandler(playerRepo)
