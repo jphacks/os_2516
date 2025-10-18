@@ -47,12 +47,11 @@ graph TB
 /
 ├── design.md · requirements.md · tasks.md
 ├── ios/
-│   └── RealFightingGame/
-│       ├── RealFightingGame.xcodeproj
-│       ├── RealFightingGame/        # アプリ本体
-│       ├── RealFightingGameTests/   # ユニットテスト
-│       └── RealFightingGameUITests/ # UIテスト
-├── Server/               # Go製バックエンド一式
+│   ├── RealFightingGame.xcodeproj
+│   ├── RealFightingGame/        # アプリ本体
+│   ├── RealFightingGameTests/   # ユニットテスト
+│   └── RealFightingGameUITests/ # UIテスト
+├── Server/                      # Go製バックエンド
 └── README.md · LICENSE · 設計書.md など
 ```
 
@@ -63,145 +62,81 @@ graph TB
 ### iOS Client Folder Structure
 
 ```
-ios/RealFightingGame/
-├── App/
-│   ├── RealFightingGameApp.swift
-│   └── ContentView.swift
-├── Domain/
-│   ├── Entities/
-│   │   ├── Player.swift
-│   │   ├── Position.swift
-│   │   ├── AttackAction.swift
-│   │   └── GameSession.swift
-│   ├── Services/
-│   │   ├── GameDomainService.swift
-│   │   └── GameRulesService.swift
-│   └── Repositories/
-│       └── PlayerStateRepository.swift
-├── Application/
-│   ├── UseCases/
-│   │   ├── AttackUseCase.swift
-│   │   ├── ManaCollectionUseCase.swift
-│   │   └── GameSessionUseCase.swift
-│   └── DTOs/
-│       ├── AttackResult.swift
-│       └── GameEvent.swift
-├── Infrastructure/
-│   ├── Position/
-│   │   ├── UWBPositionService.swift
-│   │   ├── FallbackPositionService.swift
-│   │   └── PositionService.swift
-│   ├── Network/
-│   │   ├── WebSocketNetworkService.swift
-│   │   ├── NetworkService.swift
-│   │   └── GameMessage.swift
-│   ├── Haptic/
-│   │   ├── CoreHapticsService.swift
-│   │   └── HapticService.swift
-│   └── Persistence/
-│       └── UserDefaultsPlayerRepository.swift
-├── Presentation/
-│   ├── ViewModels/
-│   │   ├── GameViewModel.swift
-│   │   └── LobbyViewModel.swift
-│   ├── Views/
-│   │   ├── GameView.swift
-│   │   ├── LobbyView.swift
-│   │   └── Components/
-│   │       ├── PlayerStatusView.swift
-│   │       ├── AttackButtonView.swift
-│   │       └── ManaBarView.swift
-│   └── Coordinators/
-│       └── GameCoordinator.swift
-├── DI/
-│   ├── DIContainer.swift
-│   └── ServiceFactory.swift
-└── Resources/
-    ├── Assets.xcassets
-    ├── Localizable.strings
-    └── Info.plist
+ios/
+├── RealFightingGame/
+│   ├── App/
+│   │   ├── RealFightingGameApp.swift
+│   │   └── ContentView.swift
+│   ├── Domain/
+│   │   ├── Entities/
+│   │   │   ├── Player.swift
+│   │   │   ├── Position.swift
+│   │   │   ├── AttackAction.swift
+│   │   │   └── GameSession.swift
+│   │   ├── Services/
+│   │   │   ├── GameDomainService.swift
+│   │   │   └── GameRulesService.swift
+│   │   └── Repositories/
+│   │       └── PlayerStateRepository.swift
+│   ├── Application/
+│   │   ├── UseCases/
+│   │   │   ├── AttackUseCase.swift
+│   │   │   ├── ManaCollectionUseCase.swift
+│   │   │   └── GameSessionUseCase.swift
+│   │   └── DTOs/
+│   │       ├── AttackResult.swift
+│   │       └── GameEvent.swift
+│   ├── Infrastructure/
+│   │   ├── Position/
+│   │   │   ├── UWBPositionService.swift
+│   │   │   ├── FallbackPositionService.swift
+│   │   │   └── PositionService.swift
+│   │   ├── Network/
+│   │   │   ├── WebSocketNetworkService.swift
+│   │   │   ├── NetworkService.swift
+│   │   │   └── GameMessage.swift
+│   │   ├── Haptic/
+│   │   │   ├── CoreHapticsService.swift
+│   │   │   └── HapticService.swift
+│   │   └── Persistence/
+│   │       └── UserDefaultsPlayerRepository.swift
+│   ├── Presentation/
+│   │   ├── ViewModels/
+│   │   │   ├── GameViewModel.swift
+│   │   │   └── LobbyViewModel.swift
+│   │   ├── Views/
+│   │   │   ├── GameView.swift
+│   │   │   ├── LobbyView.swift
+│   │   │   └── Components/
+│   │   │       ├── PlayerStatusView.swift
+│   │   │       ├── AttackButtonView.swift
+│   │   │       └── ManaBarView.swift
+│   │   └── Coordinators/
+│   │       └── GameCoordinator.swift
+│   ├── DI/
+│   │   ├── DIContainer.swift
+│   │   └── ServiceFactory.swift
+│   └── Resources/
+│       ├── Assets.xcassets
+│       ├── Localizable.strings
+│       └── Info.plist
+├── RealFightingGameTests/
+└── RealFightingGameUITests/
 ```
 
 ### Server Side Folder Structure (Go)
 
 ```
-real-fighting-server/
+Server/
 ├── cmd/
 │   └── server/
 │       └── main.go
 ├── internal/
-│   ├── domain/
-│   │   ├── entities/
-│   │   │   ├── player.go
-│   │   │   ├── game_session.go
-│   │   │   ├── attack_action.go
-│   │   │   └── position.go
-│   │   ├── services/
-│   │   │   ├── attack_judgment_service.go
-│   │   │   ├── game_rules_service.go
-│   │   │   └── interfaces.go
-│   │   └── repositories/
-│   │       ├── session_repository.go
-│   │       └── player_repository.go
-│   ├── application/
-│   │   ├── usecases/
-│   │   │   ├── attack_usecase.go
-│   │   │   ├── session_usecase.go
-│   │   │   └── position_usecase.go
-│   │   └── dtos/
-│   │       ├── requests.go
-│   │       └── responses.go
-│   ├── infrastructure/
-│   │   ├── websocket/
-│   │   │   ├── manager.go
-│   │   │   └── handler.go
-│   │   ├── persistence/
-│   │   │   ├── supabase_session_repository.go
-│   │   │   ├── supabase_player_repository.go
-│   │   │   ├── supabase_game_history_repository.go
-│   │   │   └── database.go
-│   │   ├── events/
-│   │   │   ├── websocket_publisher.go
-│   │   │   └── event_publisher.go
-│   │   └── external/
-│   │       └── id_generator.go
-│   ├── presentation/
-│   │   ├── handlers/
-│   │   │   ├── game_handler.go
-│   │   │   ├── session_handler.go
-│   │   │   └── websocket_handler.go
-│   │   ├── middleware/
-│   │   │   ├── cors.go
-│   │   │   └── logging.go
-│   │   └── routes/
-│   │       └── router.go
-│   └── config/
-│       ├── config.go
-│       └── environment.go
-├── pkg/
-│   ├── logger/
-│   │   └── logger.go
-│   └── utils/
-│       ├── math.go
-│       └── validation.go
-├── deployments/
-│   ├── cloudflare/
-│   │   └── wrangler.toml
-│   ├── gcp/
-│   │   └── cloudbuild.yaml
-│   └── database/
-│       ├── migrations/
-│       │   ├── 001_create_players.sql
-│       │   ├── 002_create_game_sessions.sql
-│       │   ├── 003_create_game_history.sql
-│       │   └── 004_create_player_stats.sql
-│       └── seeds/
-│           └── initial_data.sql
-├── scripts/
-│   ├── build.sh
-│   └── deploy.sh
+│   ├── api/
+│   └── supabase/
 ├── go.mod
 ├── go.sum
+├── Dockerfile
 └── README.md
 ```
 
