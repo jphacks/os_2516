@@ -1,3 +1,4 @@
+import Combine
 import CoreLocation
 import CoreMotion
 import Foundation
@@ -58,7 +59,7 @@ final class BattleViewModel: ObservableObject {
         phase = .ready
         haptics.prepare()
         audio.prepare()
-        startLocationMonitoring()
+        if locationService != nil { startLocationMonitoring() }
         // 権限状態を確認（.denied/.restricted の場合は案内表示用にフラグを立てる）
         let auth = CMPedometer.authorizationStatus()
         motionPermissionDenied = (auth == .denied || auth == .restricted)
@@ -237,10 +238,8 @@ final class BattleViewModel: ObservableObject {
             return nil
         }
 
-        if !force, let last = lastPositionSentAt {
-            if abs(last.timeIntervalSince(sample.timestamp)) < 0.01 {
-                return update
-            }
+        if !force, let last = lastPositionSentAt, abs(last.timeIntervalSince(sample.timestamp)) < 0.01 {
+            return update
         }
 
         lastPositionSentAt = sample.timestamp
@@ -272,9 +271,8 @@ final class BattleViewModel: ObservableObject {
 
     private func updateTelemetry(with sample: LocationSample) {
         guard let heading = sample.heading ?? sample.course else { return }
-        var telemetry = state.telemetry
-        telemetry = BattleTelemetry(
-            distanceMeters: telemetry.distanceMeters,
+        let telemetry = BattleTelemetry(
+            distanceMeters: state.telemetry.distanceMeters,
             headingDegrees: heading,
             lastUpdate: sample.timestamp
         )
