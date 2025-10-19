@@ -6,7 +6,7 @@
       "mp_cost": 40,
       "description": "炎の球体を放ち、着弾地点で爆発させる攻撃魔法。",
       "damage": 30,
-      "sound":""
+      "sound": "fireball_cast.mp3"
     },
     {
       "id": "thunderbolt",
@@ -14,15 +14,15 @@
       "mp_cost": 40,
       "description": "雷光の槍を落とし、単体に大ダメージと一時的な感電を与える。",
       "damage": 30,
-      "sound":""
+      "sound": "thunderbolt_strike.mp3"
     },
     {
       "id": "wind_cutter",
       "name": "ウィンドカッター",
       "mp_cost": 40,
       "description": "鋭い風刃を飛ばし、敵を切り裂きながら移動速度を低下させる。",
-      "damage":30,
-      "sound":""
+      "damage": 30,
+      "sound": "wind_cutter_slash.mp3"
     }
   ]
 }

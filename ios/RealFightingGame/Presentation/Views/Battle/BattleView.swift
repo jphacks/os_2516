@@ -4,6 +4,9 @@ import SwiftUI
 struct BattleView: View {
     @StateObject private var viewModel: BattleViewModel
     @State private var presentedResult: BattleResult?
+    #if canImport(UIKit)
+    @Environment(\.openURL) private var openURL
+    #endif
 
     init(sessionID: String = "mock",
          service: BattleService = ServiceFactory.makeBattleService(),
@@ -37,25 +40,11 @@ struct BattleView: View {
 
             gauges
 
-            // 検証用: MP直下に走行判定を中央表示
-            VStack(spacing: 4) {
-                Text(viewModel.isRunning ? "走行中" : "待機中")
-                    .font(.title2).bold()
-                    .foregroundStyle(viewModel.isRunning ? .green : .secondary)
-                if let rate = viewModel.stepRatePerSec {
-                    Text(String(format: "(%.1f 歩/秒)", rate))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Text("走行ON中はMPが毎秒+3回復")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+            if viewModel.motionPermissionDenied {
+                permissionBanner
+            } else {
+                runningDebug
             }
-            .frame(maxWidth: .infinity)
-            .multilineTextAlignment(.center)
-            .padding(.top, 4)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(Text(viewModel.isRunning ? "走行中。MP回復中" : "待機中"))
 
             Spacer(minLength: 24)
 
@@ -212,6 +201,54 @@ struct BattleView: View {
             ProgressView(value: Double(hp), total: Double(max))
                 .tint(tint)
         }
+    }
+
+    // MARK: - Subviews
+
+    private var runningDebug: some View {
+        VStack(spacing: 4) {
+            Text(viewModel.isRunning ? "走行中" : "待機中")
+                .font(.title2).bold()
+                .foregroundStyle(viewModel.isRunning ? .green : .secondary)
+            if let rate = viewModel.stepRatePerSec {
+                Text(String(format: "(%.1f 歩/秒)", rate))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Text("走行ON中はMPが毎秒+3回復")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .multilineTextAlignment(.center)
+        .padding(.top, 4)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(viewModel.isRunning ? "走行中。MP回復中" : "待機中"))
+    }
+
+    private var permissionBanner: some View {
+        VStack(spacing: 8) {
+            Text("モーション権限が必要です")
+                .font(.headline)
+            Text("設定 > プライバシー > モーションとフィットネス で有効にしてください。")
+                .font(.caption)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+            #if canImport(UIKit)
+            Button("設定を開く") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    openURL(url)
+                }
+            }
+            .buttonStyle(.bordered)
+            #endif
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text("モーション権限が必要です。設定を開く。"))
     }
 }
 

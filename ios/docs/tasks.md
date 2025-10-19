@@ -7,25 +7,31 @@
 ## P0: デモ必須（今日着手→当日内目標）
 
 ### 1) 走行判定確認 + MP回復
-- [ ] DI注入（必須）: `RealFightingGame/Presentation/Views/Battle/BattleStageListView.swift`
+- [x] DI注入（必須）: `RealFightingGame/Presentation/Views/Battle/BattleStageListView.swift`
   - `NavigationLink` 遷移先の `BattleView(sessionID:service:)` に `motionService: container.motionService` を追加して渡す。
 - [ ] 走行しきい値の調整: `RealFightingGame/Data/Motion/MotionService.swift`
   - `cadence >= 1.4` の見直し、ログ整備。
-- [ ] 回復ループの安定化: `RealFightingGame/Presentation/ViewModels/BattleViewModel.swift`
+- [x] 回復ループの安定化: `RealFightingGame/Presentation/ViewModels/BattleViewModel.swift`
   - モーション購読（`updates()`）→ `updateManaRegenLoop(running:)` → `increaseMana(by:)` の動作確認。
   - 現行: +3/秒、上限は `maxMana`。体験次第で係数調整。
-- [ ] 権限キー追加（必須）: `RealFightingGame.xcodeproj/project.pbxproj`
+- [x] 権限キー追加（必須）: `RealFightingGame.xcodeproj/project.pbxproj`
   - `INFOPLIST_KEY_NSMotionUsageDescription = "走行検知に使用します。"` を Debug/Release 双方へ追加。
-- [ ] 実機確認: 走行中バッジ/歩数レート表示/MP回復を確認。許可未付与時は安全に無効。
+- [x] 実機確認: 走行中バッジ/歩数レート表示/MP回復を確認。許可未付与時は安全に無効。
+  - 権限拒否時バナー表示と「設定を開く」導線を追加（`BattleView` / `BattleViewModel`）。
+  - ログ拡充（権限・available・currentCadence/derived/used/Δsteps/Δt）。
+  - ヒステリシス（開始1.6/停止1.2）、フォールバック（Δsteps/Δt）、ウォッチドッグ（3.2s, 端末に合わせて調整可）を実装。
+  - チューニング資料 `docs/motion-tuning.md` を追加。
 
 受け入れ基準
 - 走行ONで MP が秒間一定量回復、OFFで停止。
 - Battle画面に「走行中」表示（シミュレータ時はモックで再現）。
 
 ### 2) MPが無いとAttackできない
-- [ ] 機能確認のみ: 既にVM/UIで抑止済み。
+- [x] 機能確認のみ: 既にVM/UIで抑止済み。
   - VM: `BattleViewModel.attackTapped()` で `mana >= attackManaCost` をガード。
   - UI: `BattleView` の `Attack` ボタンを `disabled(mana < cost)` に連動。
+- [x] ローカル権限でのMP管理: 攻撃時に即時消費（楽観的更新）を実装。
+  - サービス（モック）側のMP操作は削除し、クライアント権限へ統一。
 - [ ] UI改善: ボタンにコスト表記（例: `Attack (-5)`）、MP不足時のヒント表示。
 - [ ] コストの一元化検討: `MockBattleService.Config.attackManaCost` と `BattleViewModel.attackManaCost` の整合。
 
@@ -41,7 +47,7 @@
     - `RealFightingGame/Infrastructure/Audio/AVAudioService.swift`
     - `RealFightingGame/Infrastructure/Audio/NoopAudioService.swift`
     - `RealFightingGame/DI/ServiceFactory+Audio.swift`
-  - 音源: `RealFightingGame/Resources/Sounds/{attack.wav, magic_cast.wav, win.wav, lose.wav}`
+  - 音源: `RealFightingGame/Resources/Sounds/{hit.mp3, win.mp3, lose.mp3}`
   - Xcode設定: 上記音源を「Copy Bundle Resources」に登録。
 - [ ] 呼び出し箇所: `BattleViewModel`
   - `attackTapped()`／`specialTapped()`／`result` 遷移時に `audio.play(...)` を呼ぶ。
@@ -97,5 +103,4 @@
   - `RealFightingGame/Infrastructure/Audio/AVAudioService.swift`
   - `RealFightingGame/Infrastructure/Audio/NoopAudioService.swift`
   - `RealFightingGame/DI/ServiceFactory+Audio.swift`
-  - `RealFightingGame/Resources/Sounds/*.wav`
-
+  - `RealFightingGame/Resources/Sounds/*.mp3`
