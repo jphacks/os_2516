@@ -8,7 +8,7 @@ final class AppContainer: ObservableObject {
     let apiBaseURL: URL
     let useMock: Bool
 
-    init(useMock: Bool = AppContainer.defaultUseMock) {
+    init(useMock: Bool = AppConfiguration.useMockServices) {
         self.useMock = useMock
         self.apiBaseURL = AppConfiguration.apiBaseURL
         if useMock {
@@ -49,14 +49,5 @@ final class AppContainer: ObservableObject {
             self.locationService = CoreLocationService()
             self.motionService = CoreMotionMotionService()
         }
-    }
-
-    private static var defaultUseMock: Bool {
-        #if DEBUG
-        let env = ProcessInfo.processInfo.environment["USE_MOCK"]
-        return env == "1"
-        #else
-        return false
-        #endif
     }
 }
