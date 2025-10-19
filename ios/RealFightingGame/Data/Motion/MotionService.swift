@@ -22,8 +22,15 @@ final class CoreMotionMotionService: MotionService {
     private var lastEmitAt: Date?
     private var watchdogTask: Task<Void, Never>?
     private var runningState: Bool = false
-    private let runStartThreshold: Double = 1.6 // ヒステリシス: 開始
-    private let runStopThreshold: Double = 1.2  // ヒステリシス: 停止
+    private var smoothedCadence: Double?
+    private let runStartThreshold: Double = 1.30 // ヒステリシス: 開始
+    private let runStopThreshold: Double = 1.05  // ヒステリシス: 停止
+    private let runStartHoldTime: TimeInterval = 0.4
+    private let minStopHoldTime: TimeInterval = 0.6
+    private let watchdogTimeout: TimeInterval = 2.2
+    private let emaAlpha: Double = 0.55
+    private var belowStopSince: Date?
+    private var aboveStartSince: Date?
 
     func updates() -> AsyncStream<MotionUpdate> {
         AsyncStream { [weak self] continuation in
@@ -37,6 +44,7 @@ final class CoreMotionMotionService: MotionService {
                 self?.lastSteps = nil
                 self?.lastTimestamp = nil
                 self?.lastEmitAt = nil
+                self?.smoothedCadence = nil
             }
 
             // 権限・機能の状態をログ出力
@@ -82,15 +90,69 @@ final class CoreMotionMotionService: MotionService {
                 self.lastTimestamp = ts
 
                 // currentCadence があれば優先、なければ derived を使用
-                let currentCadence = data.currentCadence?.doubleValue
-                let usedSource = (currentCadence != nil) ? "currentCadence" : "derived"
-                self.logger.debug("[Motion] currentCadence=\(currentCadence ?? -1) sps, derived=\(derivedRate) sps, used=\(usedSource)")
-                let cadence = data.currentCadence?.doubleValue ?? derivedRate
+                let currentCadenceRaw = data.currentCadence?.doubleValue ?? -1
+                let cadenceSource: String
+                let cadence: Double
+                if currentCadenceRaw > 0 {
+                    cadence = currentCadenceRaw
+                    cadenceSource = "currentCadence"
+                } else {
+                    cadence = derivedRate
+                    cadenceSource = "derived"
+                }
+                let sampleForStart = max(cadence, derivedRate)
+                let sampleForStop = min(cadence, derivedRate > 0 ? derivedRate : cadence)
+                if let previous = self.smoothedCadence {
+                    self.smoothedCadence = previous + self.emaAlpha * (sampleForStart - previous)
+                } else {
+                    self.smoothedCadence = sampleForStart
+                }
+                let smoothed = self.smoothedCadence ?? sampleForStart
+                let startThreshold = self.runStartThreshold
+                let stopReference = min(sampleForStop, smoothed)
+                let startReference = max(sampleForStart, smoothed)
+                let now = Date()
+                let stopHoldElapsed: Double
+                let startHoldElapsed: Double
+                if let since = self.belowStopSince {
+                    stopHoldElapsed = now.timeIntervalSince(since)
+                } else {
+                    stopHoldElapsed = -1
+                }
+                if let since = self.aboveStartSince {
+                    startHoldElapsed = now.timeIntervalSince(since)
+                } else {
+                    startHoldElapsed = -1
+                }
+                self.logger.debug("[Motion] currentCadence=\(currentCadenceRaw) sps, derived=\(derivedRate) sps, used=\(cadenceSource, privacy: .public), startRef=\(startReference, privacy: .public), stopRef=\(stopReference, privacy: .public), smoothed=\(smoothed, privacy: .public), startThreshold=\(startThreshold, privacy: .public), startHoldElapsed=\(startHoldElapsed, privacy: .public), stopHoldElapsed=\(stopHoldElapsed, privacy: .public)")
                 // ヒステリシス適用: 走行開始/終了の閾値を分けてフリップ抑制
                 if self.runningState {
-                    if cadence <= self.runStopThreshold { self.runningState = false }
+                    if stopReference <= self.runStopThreshold {
+                        if self.belowStopSince == nil {
+                            self.belowStopSince = now
+                        }
+                        if let since = self.belowStopSince, now.timeIntervalSince(since) >= self.minStopHoldTime {
+                            self.runningState = false
+                            self.belowStopSince = nil
+                            self.aboveStartSince = nil
+                        }
+                    } else {
+                        self.belowStopSince = nil
+                        self.aboveStartSince = nil
+                    }
                 } else {
-                    if cadence >= self.runStartThreshold { self.runningState = true }
+                    if startReference >= startThreshold {
+                        if self.aboveStartSince == nil {
+                            self.aboveStartSince = now
+                        }
+                        if let since = self.aboveStartSince, now.timeIntervalSince(since) >= self.runStartHoldTime {
+                            self.runningState = true
+                            self.belowStopSince = nil
+                            self.aboveStartSince = nil
+                        }
+                    } else {
+                        self.aboveStartSince = nil
+                    }
                 }
                 let isRunning = self.runningState
                 self.lastEmitAt = Date()
@@ -98,13 +160,13 @@ final class CoreMotionMotionService: MotionService {
                 let update = MotionUpdate(isRunning: isRunning, stepRatePerSec: cadence, timestamp: ts)
                 self.continuation?.yield(update)
             }
-            // 無更新タイムアウト監視（2秒以上更新なしで停止扱い）
+            // 無更新タイムアウト監視（一定間隔以上で停止扱い）
             self.watchdogTask = Task { [weak self] in
                 guard let self else { return }
                 while !Task.isCancelled {
                     try? await Task.sleep(nanoseconds: 500_000_000)
                     let now = Date()
-                    if let last = self.lastEmitAt, now.timeIntervalSince(last) > 3.2 {
+                    if let last = self.lastEmitAt, now.timeIntervalSince(last) > self.watchdogTimeout {
                         self.logger.debug("[Motion] watchdog timeout -> cadence=0, isRunning=false")
                         self.lastEmitAt = now
                         self.continuation?.yield(MotionUpdate(isRunning: false, stepRatePerSec: 0, timestamp: now))
