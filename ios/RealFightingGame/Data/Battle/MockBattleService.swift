@@ -36,6 +36,7 @@ actor MockBattleService: BattleService {
     private var streamCache: AsyncStream<BattleState>?
     private var tickTask: Task<Void, Never>?
     private var pendingActions: [BattleAction] = []
+    private var lastPositionUpdate: BattlePositionUpdate?
 
     init(config: Config = .init()) {
         self.config = config
@@ -69,6 +70,23 @@ actor MockBattleService: BattleService {
 
     func send(_ action: BattleAction) async {
         pendingActions.append(action)
+    }
+
+    func sendPositionUpdate(_ update: BattlePositionUpdate) async {
+        lastPositionUpdate = update
+        guard var current = state else { return }
+        current.telemetry = BattleTelemetry(
+            distanceMeters: current.telemetry.distanceMeters,
+            headingDegrees: update.heading,
+            lastUpdate: update.timestamp
+        )
+        state = current
+        publish()
+    }
+
+    func triggerAttack(with context: BattleAttackContext) async {
+        lastPositionUpdate = context.position
+        await send(.attack)
     }
 
     func states() async -> AsyncStream<BattleState> {

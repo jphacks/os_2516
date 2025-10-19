@@ -78,7 +78,8 @@ final class MapViewModel: ObservableObject {
             for await update in updates {
                 if Task.isCancelled { break }
                 switch update {
-                case .success(let coordinate):
+                case .success(let sample):
+                    let coordinate = sample.coordinate
                     await MainActor.run {
                         let pin = MapPin(title: "現在地", coordinate: coordinate)
                         self.userLocationPin = pin

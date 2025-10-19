@@ -91,7 +91,7 @@ struct BattleStageListView: View {
                     BattleView(sessionID: stage.id,
                                service: service,
                                motionService: container.motionService,
-                               nearbyService: container.nearbyInteractionService)
+                               locationService: container.locationService)
                 } label: {
                     stageRow(stage)
                 }
