@@ -1,243 +1,101 @@
-# iOS アプリ開発タスク一覧
+# デモ向けタスク一覧（2025-10-19）
 
-目的: SwiftUI + MVVM 構成でMap/Battle機能をモック先行で実装し、API準備後は最小差分で切替可能にする。
+目的: plan.md の4項目（走行判定+MP回復／MP不足時Attack不可／演出（音・振動）／Battle画面改善）をデモ品質で完了する。
 
-## P0: MVP 優先タスク（今スプリントで完了）
-- [ ] 共通/モック基盤
-  - [x] `MapService` 定義（`RealFightingGame/Data/Map/MapService.swift`）
-  - [x] `MockMapService` 実装（`mode/latencyMs` 付き）
-  - [x] DI 切替（`#if DEBUG` または `USE_MOCK=1`）（`AppContainer`で制御。Releaseは暫定でモック）
-  - [x] （任意）`Resources/Fixtures/pins.json` を用意
-- [ ] 通信（WebSocket）最小
-  - [ ] `WebSocketClient`（`RealFightingGame/Data/Network/WebSocketClient.swift`）接続/送受信/再接続（1s→2s→4s）
-  - [ ] 心拍 `ping` 送信（例: 15s 間隔）と `pong` 検知で接続健全性判定
-  - [ ] DTO 定義（`RealFightingGame/Data/Battle/Events.swift`）：`join`/`action`/`state`/`ping`
-  - [ ] `BattleService` 最小実装でWS経由の `join`・`action`・`state` を仲介
-  - [ ] ログ最小化（OSLog）とデバッグトグル
-- [ ] Map（表示/状態/参加導線）
-  - [x] `Map(position:content:)` と `Binding<MapCameraPosition>` の同期（`MapView.swift`）
-  - [x] `Marker` でピン表示（`MapViewModel.destinations`）
-  - [ ] `ViewState<[MapPin]>` による `loading/success/failure` 切替
-  - [x] `loadPins()` 実装（`async/await`、キャンセル安全）
-  - [ ] リージョン変更のデバウンス（目安 500ms）
-  - [ ] 位置権限/現在地表示（`Info.plist` 文言追加）
-  - [x] 現在地ピン描画＋追従（パンで解除、再センター可）
-  - [x] `LocationService` プロトコル＋`MockLocationService`（座標は近畿大学付近）
-  - [ ] 参加可能距離の判定＋「参加」ボタン表示（例: 100m 以内）
-  - [ ] 参加ボタン→`BattleView` へ遷移（同時に `WebSocketClient` へ `join`）
-- [ ] Battle（最小フロー）
-  - [x] `BattleView` 最小レイアウト（HP/行動ボタン）
-  - [x] `BattleViewModel`（攻撃1種・HP減算・非ターン制へ移行済み）
-  - [x] `MockBattleService`（ローカル進行・Tick/AI/非ターン）／`BattleService` 境界確立
-  - [x] 結果画面（勝敗/再戦ボタン）
- - [ ] テスト
-  - [ ] `MapViewModelTests`（success/empty/error/キャンセル）※success/empty/error は実装済み
-  - [ ] `BattleViewModelTests`（ダメージ計算と進行）
-  - [ ] `WebSocketClientTests`（再接続バックオフ、`join/action/state/ping` マッピング）
-  - [ ] 簡易スナップショット or UITest（主要分岐）
+参考: `docs/plan.md`・`RealFightingGame.xcodeproj/project.pbxproj`・該当Swiftファイル。
 
-### MVP 受け入れ条件
-- [x] `USE_MOCK=1` で起動し、近畿大学付近に初期フォーカス＋ピン表示
-- [ ] 現在地が参加距離内になると「参加」ボタンが表示される
-- [ ] 2台（実機またはシミュレータ）で同一セッションに `join` できる
-- [ ] 片方の `action` がもう一方の画面状態に反映される（`state` 受信）
-- [ ] 参加→バトル→結果表示まで一連の流れが成立
-- [ ] エラー時にメッセージとリトライが機能
-- [ ] `xcodebuild test` がグリーン
+## P0: デモ必須（今日着手→当日内目標）
 
-### モーション（走行判定→MP回復）スパイク（P0に追加）
-- [ ] 基盤/プロトコル
-  - [ ] `MotionService` プロトコル定義（`RealFightingGame/Data/Motion/MotionService.swift`）
-  - [ ] 実装1: `CoreMotionMotionService`（`CMPedometer`の更新で歩数/歩行速度→走行推定）
-  - [ ] 実装2: `MockMotionService`（走行ON/OFFや歩数レートを指定可能）
-  - [ ] 権限: `Info.plist` に `NSMotionUsageDescription` を追加
-- [ ] DI
-  - [ ] `AppContainer` に `motionService` を追加（`USE_MOCK`で差し替え）
-- [ ] Battle画面での可視化（検証用UI）
-  - [ ] `BattleView` 上にデバッグ表示（例: 「走行中」バッジ/現在歩数・速度）
-  - [ ] 走行中のみ `selfStatus.mana` を秒間 +X 回復（上限 `maxMana`）
-  - [ ] まずは表示と回復のみ（魔法ボタンの消費・制約は後続で対応）
-- [ ] テスト
-  - [ ] `MockMotionService` による走行ON/OFFでMPが増加/停止するユニットテスト
+### 1) 走行判定確認 + MP回復
+- [ ] DI注入（必須）: `RealFightingGame/Presentation/Views/Battle/BattleStageListView.swift`
+  - `NavigationLink` 遷移先の `BattleView(sessionID:service:)` に `motionService: container.motionService` を追加して渡す。
+- [ ] 走行しきい値の調整: `RealFightingGame/Data/Motion/MotionService.swift`
+  - `cadence >= 1.4` の見直し、ログ整備。
+- [ ] 回復ループの安定化: `RealFightingGame/Presentation/ViewModels/BattleViewModel.swift`
+  - モーション購読（`updates()`）→ `updateManaRegenLoop(running:)` → `increaseMana(by:)` の動作確認。
+  - 現行: +3/秒、上限は `maxMana`。体験次第で係数調整。
+- [ ] 権限キー追加（必須）: `RealFightingGame.xcodeproj/project.pbxproj`
+  - `INFOPLIST_KEY_NSMotionUsageDescription = "走行検知に使用します。"` を Debug/Release 双方へ追加。
+- [ ] 実機確認: 走行中バッジ/歩数レート表示/MP回復を確認。許可未付与時は安全に無効。
 
-#### 受け入れ条件（モーション・スパイク）
-- [ ] 実機またはモックでBattle画面に「走行中」表示が出る
-- [ ] 走行ON時に `mana` が秒間一定量で回復し、OFFで停止
-- [ ] 権限未許可時は安全に無効化（UIは非表示または「未許可」表示）
+受け入れ基準
+- 走行ONで MP が秒間一定量回復、OFFで停止。
+- Battle画面に「走行中」表示（シミュレータ時はモックで再現）。
 
-#### 実行計画（最短ルート）
-1. `MotionService`/`MockMotionService` を作成。`AsyncStream`で`isRunning`/`stepRate`を通知。
-2. `AppContainer` に `motionService` を追加し、`USE_MOCK`時はモックを注入。
-3. `BattleViewModel` に暫定購読を追加して、`isRunning`なら `mana += rate`（`min(maxMana, ...)`）。
-4. `BattleView` に小型バッジ（「走行中」）とMPの簡易表示をオーバーレイ追加。
-5. `Info.plist` に `NSMotionUsageDescription` を追記し、実機で権限確認。
-6. ユニットテスト：モックでON/OFFを切替→一定時間後のMP変化を検証。
+### 2) MPが無いとAttackできない
+- [ ] 機能確認のみ: 既にVM/UIで抑止済み。
+  - VM: `BattleViewModel.attackTapped()` で `mana >= attackManaCost` をガード。
+  - UI: `BattleView` の `Attack` ボタンを `disabled(mana < cost)` に連動。
+- [ ] UI改善: ボタンにコスト表記（例: `Attack (-5)`）、MP不足時のヒント表示。
+- [ ] コストの一元化検討: `MockBattleService.Config.attackManaCost` と `BattleViewModel.attackManaCost` の整合。
 
-## M0: モック先行セットアップ（共通）
-- [ ] プロトコル定義で抽象化
-  - [x] `MapService` / `BattleService` をそれぞれ `RealFightingGame/Data/...` に作成
-- [ ] モック実装
-  - [x] `MockMapService`（`mode: success/empty/error`, `latencyMs`, `failureRate`）
-  - [x] `MockBattleService`（マッチング/行動解決をローカルシミュレーション）
-- [ ] フィクスチャ
-  - [x] `RealFightingGame/Resources/Fixtures/pins.json`（任意。擬似生成でも可）
-- [ ] 依存性注入（DI）
-  - [x] `#if DEBUG` でモック、`#else` でリモート（後日）※現状Releaseも暫定モック
-  - [ ] `xcconfig` or Scheme で `USE_MOCK=1` 切替（Debug/Preview用）
-- [ ] プレビュー/テスト
-  - [x] Preview は常にモックを注入
-  - [x] ユニットテストで `mode` を切替し各状態を再現
+受け入れ基準
+- MP不足時に攻撃は送出されず、ボタンも押下不可でユーザが気付ける。
 
-## M1: Map 画面 MVP（表示と基本操作）
-- [ ] 初期描画
-  - [x] `Map(position:content:)` へ統一（iOS17+）
-  - [x] `Binding<MapCameraPosition>` と `MKCoordinateRegion` の相互同期実装確認（`MapView.swift`）
-  - [x] 初期リージョンを `MapViewModel.region` の `defaultRegion` に揃える
-- [ ] ピン描画
-  - [x] `Marker` で `MapPin` をループ表示（`MapViewModel.destinations`）
-  - [x] テキスト/色（アクセシビリティラベルは後続）
-- [ ] ユーザ操作
-  - [ ] ズーム/スクロールの感度確認、標準スタイル (`.standard`) 適用
-  - [x] オーバーレイ（タイトル/サブタイトル）のレイアウト最終化
-- [ ] 現在地
-  - [ ] 位置権限ダイアログ文言（`Info.plist: NSLocationWhenInUseUsageDescription`）
-  - [x] 現在地表示トグル／追従モード（必要なら）
+### 3) 演出（音・振動）
+- [ ] ハプティクス微調整（任意）: `CoreHapticsService`/`UIKitHapticsService`
+  - Attack/Hit/Special/Win/Lose の強弱・種類を調整。
+- [ ] 効果音レイヤ追加（新規）
+  - 追加ファイル: 
+    - `RealFightingGame/Infrastructure/Audio/AudioService.swift`
+    - `RealFightingGame/Infrastructure/Audio/AVAudioService.swift`
+    - `RealFightingGame/Infrastructure/Audio/NoopAudioService.swift`
+    - `RealFightingGame/DI/ServiceFactory+Audio.swift`
+  - 音源: `RealFightingGame/Resources/Sounds/{attack.wav, magic_cast.wav, win.wav, lose.wav}`
+  - Xcode設定: 上記音源を「Copy Bundle Resources」に登録。
+- [ ] 呼び出し箇所: `BattleViewModel`
+  - `attackTapped()`／`specialTapped()`／`result` 遷移時に `audio.play(...)` を呼ぶ。
 
-## M2a: データ取得（モック実装で接続）
-- [ ] `MapService` プロトコル定義（`Data/Map/MapService.swift`）
-- [ ] `MockMapService` 実装（擬似生成 or `pins.json` ロード）
-- [ ] `MapViewModel.loadPins()` 実装（`async/await`、`state` 更新、キャンセル安全）
-- [ ] リージョン変更のデバウンス（500ms 目安）
+受け入れ基準
+- Attack/Special/Win/Lose のタイミングで重なりなく音が鳴り、ハプティクスと違和感がない。
 
-## M2b: データ取得（リモート実装・API準備後）
-- [ ] DTO/エンドポイント定義（`Data/Map/DTOs.swift`）
-- [x] `RemoteMapService` 実装（`URLSession`/`JSONDecoder`）
-- [x] エラー種別のマッピング（ネットワーク/HTTP/デコード）
-- [ ] `AppConfig` に `baseURL`/`timeout` 追加（`Data/Config/AppConfig.swift`）
-- [ ] DI 切替（`USE_MOCK` = 0 でリモート利用）
+### 4) Battle画面の改善
+- [ ] ステータス表示の統一: `PlayerStatusView` を活用し、HP/MPの視認性向上。
+- [ ] ボタンUI: Attackにコスト表示、Special準備完了時の強調（色/バウンド等）。
+- [ ] ガード可視化: 残り有効時間を簡易ゲージで表現（`runEnergy` を転用）。
+- [ ] アクセシビリティ: VoiceOverラベル/値、ヒント整備。Dynamic Type 最低限対応。
 
-## M3: エラー・ローディング・詳細UI
-- [ ] 状態設計
-  - [ ] `ViewState<[MapPin]>` 採用（`idle/loading/success/failure`）
-  - [ ] 空状態（ピン0件）の表示
-- [ ] UI実装
-  - [ ] `ProgressView` 表示/非表示
-  - [ ] エラー表示＋リトライ
-  - [ ] ピン選択→詳細シート（タイトル/距離/説明/アクション）
+受け入れ基準
+- 主要コンポーネントが一目で状態把握可能、誤操作が減る。
 
-## M4: 共通基盤・品質
-- [ ] 共通 `APIClient`（再利用可能な送受信/エラーハンドリング）
-- [ ] 簡易メモリキャッシュ（座標キー＋TTL）（任意）
-- [ ] ログ/トレース最小実装
-- [ ] SwiftFormat 設定・スクリプト追加
+## 依存関係と順序
+1) 走行判定の注入/権限キー追加 → 2) Attack抑止のUI改善 → 3) 音源とオーディオ層 → 4) Battle UI磨き込み。
 
-## テスト（`RealFightingGameTests/`）
-- [x] `MapViewModelTests.swift`
-  - [ ] 成功/失敗/空/キャンセルのユニットテスト（`MockMapService`）※成功/空/失敗は実装済み、キャンセル未着手
-  - [ ] デバウンス挙動（スロットルと区別、連打耐性）
-  - [ ] レイテンシ/失敗率のシミュレーションでUI状態を検証
-- [ ] UI テスト
-  - [ ] `ViewState` ごとのスナップショット
-  - [ ] ピン選択→詳細シート表示
-  - [x] 位置追従・再センターのユニットテスト（`Map/MapViewModelLocationTests.swift`）
+## 担当割り振り（例）
+- モーション/回復: `BattleStageListView.swift`・`MotionService.swift`・`BattleViewModel.swift`・`project.pbxproj`
+- 演出（音）: Audio層新規作成＋VMフック＋リソース登録
+- UI/アクセシビリティ: `BattleView.swift`・`PlayerStatusView.swift`・`BattleResultView.swift`
+- ビルド/統合: Xcode設定、`xcodebuild test`、実機デモ確認
 
-## 受け入れ条件（抜粋）
-- [x] `USE_MOCK=1`（Debug）でモックデータにより全フローが確認できる
-- [x] アプリ起動で近畿大学付近に初期フォーカス、ピンが表示される
-- [ ] 地図操作で過剰なAPI呼び出しが発生しない（デバウンス有効）
-- [ ] オフライン/エラー時にユーザへ明確な案内とリトライ手段を提供
-- [ ] `xcodebuild test` がローカルでグリーン
+## テスト観点
+- ユニット: `MockMotionService` で ON/OFF 切替→ MP回復/停止を検証。
+- UI: Attackボタンの `disabled` 条件、Special準備完了時の強調表示。
+- デバイス: 実機でCMPedometerとハプティクス/オーディオ遅延を確認。
 
-## 実行コマンド（リポジトリ規約）
+## 受け入れ条件（デモ）
+- Battle画面で「走行中」表示が出る（実機/モック）。
+- 走行ONでMP回復が視覚的に増加し、OFFで止まる。
+- MP不足時にAttack不可（UI/ロジック双方で抑止）。
+- Attack/Special/Win/Lose で効果音とハプティクスが適切に鳴動。
+- 改善後UIで主要情報（HP/MP/ゲージ/行動可否）が即時に把握できる。
+
+## 実行コマンド
 - ビルド: `cd RealFightingGame && xcodebuild -scheme RealFightingGame -destination "platform=iOS Simulator,name=iPhone 15" build`
 - テスト: `cd RealFightingGame && xcodebuild test -scheme RealFightingGame -destination "platform=iOS Simulator,name=iPhone 15"`
 
-## 備考
-- 設計ポリシー・詳細は `docs/state-management.md` を参照
-- 仕様整合は `design.md` / `requirements.md`、フォローアップは `tasks.md` を適宜更新
+## 変更予定ファイル一覧
+- 既存: 
+  - `RealFightingGame/Presentation/Views/Battle/BattleStageListView.swift`
+  - `RealFightingGame/Presentation/Views/Battle/BattleView.swift`
+  - `RealFightingGame/Presentation/ViewModels/BattleViewModel.swift`
+  - `RealFightingGame/Data/Motion/MotionService.swift`
+  - `RealFightingGame/Presentation/Components/PlayerStatusView.swift`
+  - `RealFightingGame/Presentation/Views/Battle/BattleResultView.swift`
+  - `RealFightingGame.xcodeproj/project.pbxproj`
+- 新規（演出/音）:
+  - `RealFightingGame/Infrastructure/Audio/AudioService.swift`
+  - `RealFightingGame/Infrastructure/Audio/AVAudioService.swift`
+  - `RealFightingGame/Infrastructure/Audio/NoopAudioService.swift`
+  - `RealFightingGame/DI/ServiceFactory+Audio.swift`
+  - `RealFightingGame/Resources/Sounds/*.wav`
 
----
-
-## B0: モック先行セットアップ（Battle）
-- [x] `BattleService` プロトコル定義（`Data/Battle/BattleService.swift`）
-- [x] `MockBattleService` 実装（非ターン制Tick・AI・ローカル進行）
-- [ ] DI 切替（Debug=モック、Release=リモート予定）※現状`ServiceFactory`でDebug/`USE_MOCK=1`はモック、Releaseは暫定でモック
-
-## B1: Battle 画面 MVP（UI/操作）
-- [ ] レイアウト
-  - [x] `BattleView.swift` の構造（上: ステータス/中央: アリーナ/下: 操作）
-  - [x] 縦横/小画面対応（Size Class 最小対応）
-- [ ] コンポーネント
-  - [x] HP/ガード/必殺ゲージ表示（プレースホルダ含む）
-  - [x] 行動ボタン（Attack/Guard/Special）と無効化条件（Specialはチャージ条件）
-  - [ ] ターゲット選択UI（単体/全体の切替）
-- [ ] アクセシビリティ
-  - [x] VoiceOver ラベル/ヒント（HP/Attack）
-  - [ ] Dynamic Type 対応
-
-## B2: 状態管理/ロジック
-- [x] `BattleViewModel` 追加（`Presentation/ViewModels/BattleViewModel.swift`）
-- [x] `Action` 設計（send/非ブロッキング）＋`result`判定
-- [x] 行動キュー＋同期タイマー（MockのTick 0.2s）
-- [ ] クールダウンの明示的型管理（攻撃/必殺のCDを`BattleState`に保持）
-- [ ] ダメージ計算・クリティカル・属性相性の関数分離
-
-## B3: 演出/入力フィードバック
-- [ ] 攻撃/被弾/スキル演出（アニメ/ハプティクス）
-- [ ] 連続入力・キャンセル時のUI/状態反映
-- [ ] 成功/失敗/クールダウンの視覚フィードバック
-
-## B4: ネットワーク連携
-- [ ] `BattleService` 定義（`Data/Battle/BattleService.swift`）
-- [ ] マッチング開始/終了API、ルーム参加/離脱
-- [ ] イベント同期（ポーリング or WebSocket）
-- [ ] 切断時の再接続/リトライ方針
-
-## B5: テスト（`RealFightingGameTests/Battle/`）
-- [ ] `BattleViewModelTests.swift`
-  - [ ] ダメージ計算（境界値/属性相性）
-  - [ ] クールダウン（時間経過/キャンセル）
-  - [ ] 同期待ち/遅延下の挙動
-- [ ] UI テスト（主要分岐の表示確認）
-
-## 受け入れ条件（Battle抜粋）
-- [ ] 対戦開始→行動選択→結果反映の一連が破綻なく動作
-- [ ] レイテンシ/切断発生時でもリトライ・再同期が可能
-
----
-
-## P1: 計画同期タスク（plan.md 反映・MVP後）
-
-### 認証基盤
-- [ ] Sign in with Apple 実装（`AuthenticationServices`）
-- [ ] トークン取得・保存（Keychain）・更新ポリシー
-- [ ] API/WS へのトークン添付、失効時の再認証フロー
-
-### ネットワーク/WS 基盤
-- [ ] `NetworkService` プロトコルと `APIClient` 強化（タイムアウト/リトライ/バックオフ/ログ）
-- [ ] WebSocket クライアント（接続/送受信/再接続・バックオフ/心拍）
-- [ ] `game-event` / `result` の DTO とスキーマ定義（送受マッピング）
-
-### センサー・測位
-- [ ] CoreMotion + Pedometer で走行判定（まずはモック→実機検証）
-- [ ] Nearby Interaction（UWB）検証コードと権限ハンドリング
-- [ ] 非対応端末向け fallback（GPS + コンパス）調査と実装
-- [ ] 位置権限のフロー・エラーハンドリング見直し
-
-### マップ/参加導線の強化
-- [ ] 参加可能距離の閾値確定（例: 100m）とテレメトリ取得
-- [ ] 参加ボタンの状態管理（距離外/権限未許可/通信エラー）
-- [ ] レーダー UI プロトタイプ（Battle への誘導）
-
-### リザルト/フロー
-- [ ] `/result` DTO と API 連携（結果取得・再戦導線）
-- [ ] End フラグ送信失敗時のリトライポリシー
-
-### 演出
-- [ ] ハプティクスプリセット（攻撃/被弾/詠唱完了）の適用
-- [ ] サウンド再生インフラ（`AVAudioSession` 設定、効果音の再生）
-
-### ログ/テスト強化
-- [ ] デバッグ用イベントログ保存（OSLog/ファイル）
-- [ ] `NetworkService` / WebSocket のテストダブルと結合テスト
-- [ ] 距離計算・認証・権限フローのユニット/UITest 追加
