@@ -5,12 +5,14 @@ final class AppContainer: ObservableObject {
     let mapService: MapService
     let locationService: LocationService
     let motionService: MotionService
+    let nearbyInteractionService: NearbyInteractionService
     let apiBaseURL: URL
     let useMock: Bool
 
     init(useMock: Bool = AppContainer.defaultUseMock) {
         self.useMock = useMock
         self.apiBaseURL = AppConfiguration.apiBaseURL
+        self.nearbyInteractionService = NearbyInteractionService()
         if useMock {
             self.mapService = MockMapService(mode: .success, latencyMs: 200, failureRate: 0.0, useFixture: true)
             self.locationService = MockLocationService(

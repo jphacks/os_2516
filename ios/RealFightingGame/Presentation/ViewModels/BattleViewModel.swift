@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import OSLog
 
@@ -13,26 +14,66 @@ final class BattleViewModel: ObservableObject {
 
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var state: BattleState = .mock
+    @Published private(set) var nearbyStatus: NearbyInteractionService.Status = .idle
+    @Published private(set) var nearbyReading: NearbyInteractionService.Reading?
+    @Published private(set) var nearbyErrorMessage: String?
 
     private let sessionID: String
     private let service: BattleService
     private let haptics: HapticsService
     private let motionService: MotionService?
+    private let nearbyInteraction: NearbyInteractionService?
     private var lastState: BattleState?
     private var isJoining = false
     private let logger = Logger(subsystem: "RealFightingGame", category: "Battle")
     private var motionStreamTask: Task<Void, Never>?
     private var manaRegenTask: Task<Void, Never>?
+    private var cancellables = Set<AnyCancellable>()
+    private var nearbyEventsTask: Task<Void, Never>?
     @Published private(set) var isRunning: Bool = false
     @Published private(set) var stepRatePerSec: Double? = nil
     private let manaRegenPerSecond: Int = 3
     let attackManaCost: Int = 5
+    var isNearbyInteractionAvailable: Bool { nearbyInteraction != nil }
 
-    init(sessionID: String, service: BattleService, haptics: HapticsService = ServiceFactory.makeHapticsService(), motionService: MotionService? = nil) {
+    init(sessionID: String,
+         service: BattleService,
+         haptics: HapticsService = ServiceFactory.makeHapticsService(),
+         motionService: MotionService? = nil,
+         nearbyInteraction: NearbyInteractionService? = nil) {
         self.sessionID = sessionID
         self.service = service
         self.haptics = haptics
         self.motionService = motionService
+        self.nearbyInteraction = nearbyInteraction
+
+        if let nearbyInteraction {
+            nearbyInteraction.$status
+                .receive(on: RunLoop.main)
+                .sink { [weak self] status in
+                    self?.nearbyStatus = status
+                }
+                .store(in: &cancellables)
+
+            nearbyInteraction.$reading
+                .receive(on: RunLoop.main)
+                .sink { [weak self] reading in
+                    self?.nearbyReading = reading
+                }
+                .store(in: &cancellables)
+
+            nearbyInteraction.$encodedDiscoveryToken
+                .compactMap { $0 }
+                .removeDuplicates()
+                .receive(on: RunLoop.main)
+                .sink { [weak self] token in
+                    guard let self else { return }
+                    Task {
+                        await self.service.publishNearbyInteractionToken(token)
+                    }
+                }
+                .store(in: &cancellables)
+        }
     }
 
     func onAppear() {
@@ -40,6 +81,9 @@ final class BattleViewModel: ObservableObject {
         isJoining = true
         phase = .ready
         haptics.prepare()
+        nearbyInteraction?.clearPeerToken()
+        nearbyInteraction?.prepare()
+        startNearbyEventsListener()
         Task { [weak self] in
             guard let self else { return }
             do {
@@ -137,6 +181,9 @@ final class BattleViewModel: ObservableObject {
         motionStreamTask?.cancel(); motionStreamTask = nil
         manaRegenTask?.cancel(); manaRegenTask = nil
         stepRatePerSec = nil
+        nearbyInteraction?.suspend()
+        nearbyEventsTask?.cancel(); nearbyEventsTask = nil
+        nearbyErrorMessage = nil
     }
 
     private func updateManaRegenLoop(running: Bool) {
@@ -164,5 +211,40 @@ final class BattleViewModel: ObservableObject {
         let newSelf = BattleParticipant(displayName: me.displayName, hp: me.hp, maxHp: me.maxHp, mana: newMana, maxMana: me.maxMana)
         state = BattleState(selfStatus: newSelf, opponentStatus: state.opponentStatus, telemetry: state.telemetry, chantProgress: state.chantProgress, runEnergy: state.runEnergy)
         logger.debug("[Battle] MP regen +\(amount, privacy: .public) \(old, privacy: .public)->\(newMana, privacy: .public)")
+    }
+
+    private func startNearbyEventsListener() {
+        guard nearbyEventsTask == nil else { return }
+        nearbyEventsTask = Task { [weak self] in
+            guard let self else { return }
+            let stream = await self.service.nearbyInteractionEvents()
+            for await event in stream {
+                await self.handleNearbyEvent(event)
+            }
+            await MainActor.run {
+                self.nearbyEventsTask = nil
+            }
+        }
+    }
+
+    private func handleNearbyEvent(_ event: NearbyInteractionEvent) {
+        guard let nearbyInteraction else { return }
+        switch event {
+        case .peerToken(let token):
+            nearbyErrorMessage = nil
+            nearbyInteraction.setPeerToken(fromBase64: token)
+        case .cleared:
+            nearbyErrorMessage = nil
+            nearbyInteraction.clearPeerToken()
+            nearbyInteraction.resume()
+            if let token = nearbyInteraction.encodedDiscoveryToken {
+                Task {
+                    await service.publishNearbyInteractionToken(token)
+                }
+            }
+        case .error(let message):
+            nearbyErrorMessage = message
+            nearbyInteraction.suspend()
+        }
     }
 }
