@@ -41,7 +41,7 @@
     - `RealFightingGame/Infrastructure/Audio/AVAudioService.swift`
     - `RealFightingGame/Infrastructure/Audio/NoopAudioService.swift`
     - `RealFightingGame/DI/ServiceFactory+Audio.swift`
-  - 音源: `RealFightingGame/Resources/Sounds/{attack.wav, magic_cast.wav, win.wav, lose.wav}`
+  - 音源: `RealFightingGame/Resources/Sounds/{hit.mp3, win.mp3, lose.mp3}`
   - Xcode設定: 上記音源を「Copy Bundle Resources」に登録。
 - [ ] 呼び出し箇所: `BattleViewModel`
   - `attackTapped()`／`specialTapped()`／`result` 遷移時に `audio.play(...)` を呼ぶ。
@@ -97,5 +97,4 @@
   - `RealFightingGame/Infrastructure/Audio/AVAudioService.swift`
   - `RealFightingGame/Infrastructure/Audio/NoopAudioService.swift`
   - `RealFightingGame/DI/ServiceFactory+Audio.swift`
-  - `RealFightingGame/Resources/Sounds/*.wav`
-
+  - `RealFightingGame/Resources/Sounds/*.mp3`
