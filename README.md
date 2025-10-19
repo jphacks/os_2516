@@ -68,10 +68,10 @@ Core Hapticsによる振動フィードバック、詠唱による攻撃シス�
 
 ### 独自技術
 #### ハッカソンで開発した独自機能・技術
-* **UWB位置検出システム**: Nearby Interaction Frameworkを活用した高精度位置検出
-  - 実装ファイル: `ios/RealFightingGame/Data/Location/LocationService.swift`
-  - フォールバック機能: Bluetooth + 加速度センサーによる位置推定
-
+~~* **UWB位置検出システム**: Nearby Interaction Frameworkを活用した高精度位置検出~~
+  - ~~実装ファイル: `ios/RealFightingGame/Data/Location/LocationService.swift`~~
+  - ~~フォールバック機能: Bluetooth + 加速度センサーによる位置推定~~
+UWBが謎のばぐで動かなかったのでGPSで実装してます！！
 * **リアルタイム対戦エンジン**: WebSocket通信による低遅延ゲーム同期
   - 実装ファイル: `Server/internal/session/session_manager.go`
   - 攻撃判定システム: サーバーサイドでの公正な判定処理
