@@ -88,7 +88,9 @@ struct BattleStageListView: View {
             ForEach(stages) { stage in
                 let service = battleService(for: stage)
                 NavigationLink {
-                    BattleView(sessionID: stage.id, service: service)
+                    BattleView(sessionID: stage.id,
+                               service: service,
+                               motionService: container.motionService)
                 } label: {
                     stageRow(stage)
                 }

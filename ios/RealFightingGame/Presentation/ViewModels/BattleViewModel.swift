@@ -1,5 +1,6 @@
 import Foundation
 import OSLog
+import CoreMotion
 
 @MainActor
 final class BattleViewModel: ObservableObject {
@@ -17,6 +18,7 @@ final class BattleViewModel: ObservableObject {
     private let sessionID: String
     private let service: BattleService
     private let haptics: HapticsService
+    private let audio: AudioService
     private let motionService: MotionService?
     private var lastState: BattleState?
     private var isJoining = false
@@ -25,13 +27,19 @@ final class BattleViewModel: ObservableObject {
     private var manaRegenTask: Task<Void, Never>?
     @Published private(set) var isRunning: Bool = false
     @Published private(set) var stepRatePerSec: Double? = nil
+    @Published private(set) var motionPermissionDenied: Bool = false
     private let manaRegenPerSecond: Int = 3
     let attackManaCost: Int = 5
 
-    init(sessionID: String, service: BattleService, haptics: HapticsService = ServiceFactory.makeHapticsService(), motionService: MotionService? = nil) {
+    init(sessionID: String,
+         service: BattleService,
+         haptics: HapticsService = ServiceFactory.makeHapticsService(),
+         audio: AudioService = ServiceFactory.makeAudioService(),
+         motionService: MotionService? = nil) {
         self.sessionID = sessionID
         self.service = service
         self.haptics = haptics
+        self.audio = audio
         self.motionService = motionService
     }
 
@@ -40,6 +48,10 @@ final class BattleViewModel: ObservableObject {
         isJoining = true
         phase = .ready
         haptics.prepare()
+        audio.prepare()
+        // 権限状態を確認（.denied/.restricted の場合は案内表示用にフラグを立てる）
+        let auth = CMPedometer.authorizationStatus()
+        motionPermissionDenied = (auth == .denied || auth == .restricted)
         Task { [weak self] in
             guard let self else { return }
             do {
@@ -56,32 +68,42 @@ final class BattleViewModel: ObservableObject {
                             let prev = self.lastState
                             self.lastState = next
 
-                            // リモート状態とローカル回復MPをマージ（上書き防止）
+                            // リモート状態とローカルMPを常にクライアント優先でマージ
                             let localMana = self.state.selfStatus.mana
                             var merged = next
-                            if localMana > next.selfStatus.mana {
-                                merged.selfStatus = BattleParticipant(
-                                    displayName: next.selfStatus.displayName,
-                                    hp: next.selfStatus.hp,
-                                    maxHp: next.selfStatus.maxHp,
-                                    mana: localMana,
-                                    maxMana: next.selfStatus.maxMana
-                                )
-                                self.logger.debug("[Battle] merge mana local=\(localMana, privacy: .public) remote=\(next.selfStatus.mana, privacy: .public) -> \(merged.selfStatus.mana, privacy: .public)")
-                            }
+                            merged.selfStatus = BattleParticipant(
+                                displayName: next.selfStatus.displayName,
+                                hp: next.selfStatus.hp,
+                                maxHp: next.selfStatus.maxHp,
+                                mana: localMana,
+                                maxMana: next.selfStatus.maxMana
+                            )
+                            self.logger.debug("[Battle] merge mana (client-authoritative) local=\(localMana, privacy: .public) remote=\(next.selfStatus.mana, privacy: .public)")
                             self.state = merged
 
                             // 被弾: 自HPが減少
                             if let prev, next.selfStatus.hp < prev.selfStatus.hp {
                                 self.haptics.playerHit()
+                                self.audio.play(effect: .hit)
                             }
                             // Special準備完了: <1.0 → >=1.0 にクロス
                             if let prev, prev.chantProgress < 1.0, next.chantProgress >= 1.0 {
                                 self.haptics.specialReady()
                             }
 
-                            if next.opponentStatus.hp <= 0 { self.phase = .result(.win); self.haptics.win() }
-                            else if next.selfStatus.hp <= 0 { self.phase = .result(.lose); self.haptics.lose() }
+                            if next.opponentStatus.hp <= 0 {
+                                if self.phase != .result(.win) {
+                                    self.phase = .result(.win)
+                                    self.haptics.win()
+                                    self.audio.play(effect: .win)
+                                }
+                            } else if next.selfStatus.hp <= 0 {
+                                if self.phase != .result(.lose) {
+                                    self.phase = .result(.lose)
+                                    self.haptics.lose()
+                                    self.audio.play(effect: .lose)
+                                }
+                            }
                         }
                     }
                 }
@@ -110,6 +132,8 @@ final class BattleViewModel: ObservableObject {
     func attackTapped() {
         guard case .inputting = phase, state.selfStatus.mana >= attackManaCost else { return }
         haptics.attackTap()
+        // 楽観的更新: ローカルで即時にMPを消費しUIへ反映
+        decreaseMana(by: attackManaCost)
         Task { [service] in await service.send(.attack) }
     }
 
@@ -134,9 +158,11 @@ final class BattleViewModel: ObservableObject {
             await service.end()
         }
         haptics.stop()
+        audio.stopAll()
         motionStreamTask?.cancel(); motionStreamTask = nil
         manaRegenTask?.cancel(); manaRegenTask = nil
         stepRatePerSec = nil
+        motionPermissionDenied = false
     }
 
     private func updateManaRegenLoop(running: Bool) {
@@ -164,5 +190,16 @@ final class BattleViewModel: ObservableObject {
         let newSelf = BattleParticipant(displayName: me.displayName, hp: me.hp, maxHp: me.maxHp, mana: newMana, maxMana: me.maxMana)
         state = BattleState(selfStatus: newSelf, opponentStatus: state.opponentStatus, telemetry: state.telemetry, chantProgress: state.chantProgress, runEnergy: state.runEnergy)
         logger.debug("[Battle] MP regen +\(amount, privacy: .public) \(old, privacy: .public)->\(newMana, privacy: .public)")
+    }
+
+    private func decreaseMana(by amount: Int) {
+        guard amount > 0 else { return }
+        var me = state.selfStatus
+        let old = me.mana
+        let newMana = max(0, me.mana - amount)
+        if newMana == me.mana { return }
+        let newSelf = BattleParticipant(displayName: me.displayName, hp: me.hp, maxHp: me.maxHp, mana: newMana, maxMana: me.maxMana)
+        state = BattleState(selfStatus: newSelf, opponentStatus: state.opponentStatus, telemetry: state.telemetry, chantProgress: state.chantProgress, runEnergy: state.runEnergy)
+        logger.debug("[Battle] MP consume -\(amount, privacy: .public) \(old, privacy: .public)->\(newMana, privacy: .public)")
     }
 }
