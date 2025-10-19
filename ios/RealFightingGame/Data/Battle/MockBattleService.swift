@@ -120,16 +120,7 @@ actor MockBattleService: BattleService {
             for action in pendingActions {
                 switch action {
                 case .attack:
-                    // MP不足なら攻撃は不発（何もしない）
-                    guard current.selfStatus.mana >= config.attackManaCost else { continue }
-                    // MP消費
-                    current.selfStatus = BattleParticipant(
-                        displayName: current.selfStatus.displayName,
-                        hp: current.selfStatus.hp,
-                        maxHp: current.selfStatus.maxHp,
-                        mana: max(0, current.selfStatus.mana - config.attackManaCost),
-                        maxMana: current.selfStatus.maxMana
-                    )
+                    // クライアント権限: MPはiOS側で管理。サーバ（モック）はHPのみ更新。
                     let dmg = Int.random(in: config.playerDamageRange)
                     let newEnemyHP = max(0, current.opponentStatus.hp - dmg)
                     current.opponentStatus = BattleParticipant(
