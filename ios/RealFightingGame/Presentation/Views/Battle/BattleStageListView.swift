@@ -90,6 +90,7 @@ struct BattleStageListView: View {
                 NavigationLink {
                     BattleView(sessionID: stage.id,
                                service: service,
+                               motionService: container.motionService,
                                nearbyService: container.nearbyInteractionService)
                 } label: {
                     stageRow(stage)
