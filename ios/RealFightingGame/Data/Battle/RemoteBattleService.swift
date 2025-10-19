@@ -100,6 +100,15 @@ actor RemoteBattleService: BattleService {
     func send(_ action: BattleAction) async {
         log("send requested action=\(action)")
 
+        if webSocketTask == nil {
+            log("send detected missing socket; attempting to re-establish")
+            do {
+                try await ensureSocket()
+            } catch {
+                log("send failed to ensure socket: \(error)")
+            }
+        }
+
         guard let socket = webSocketTask else {
             log("send aborted: webSocketTask is nil")
             return
