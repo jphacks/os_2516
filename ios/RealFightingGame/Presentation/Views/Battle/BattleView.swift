@@ -99,6 +99,10 @@ struct BattleView: View {
                     showFireball = false
                 }
             }
+            if let telemetry = viewModel.opponentIndicator {
+                OpponentLocatorView(telemetry: telemetry)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
         }
         .onChange(of: viewModelPhase) { phase in
             if case .result(let r) = phase { presentedResult = r }
