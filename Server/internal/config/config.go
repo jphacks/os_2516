@@ -12,6 +12,7 @@ type Config struct {
 	Database DatabaseConfig
 	Auth     AuthConfig
 	CORS     CORSConfig
+	Game     GameConfig
 }
 
 // ServerConfig はサーバー設定です
@@ -34,6 +35,11 @@ type CORSConfig struct {
 	AllowedOrigins []string
 }
 
+// GameConfig はゲーム関連設定です。
+type GameConfig struct {
+	DefaultOpponentPlayerID string
+}
+
 // Load は環境変数から設定を読み込みます
 func Load() (*Config, error) {
 	config := &Config{
@@ -53,6 +59,9 @@ func Load() (*Config, error) {
 		},
 		CORS: CORSConfig{
 			AllowedOrigins: getEnvSlice("CORS_ALLOWED_ORIGINS", []string{"*"}),
+		},
+		Game: GameConfig{
+			DefaultOpponentPlayerID: getEnv("GAME_DEFAULT_OPPONENT_ID", ""),
 		},
 	}
 

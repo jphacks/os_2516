@@ -177,7 +177,11 @@ struct MapPin: Identifiable, Hashable {
     let stageID: String?
     let distanceMeters: Double?
 
-    init(id: UUID = UUID(), title: String, coordinate: CLLocationCoordinate2D, stageID: String? = nil, distanceMeters: Double? = nil) {
+    init(id: UUID = UUID(),
+         title: String,
+         coordinate: CLLocationCoordinate2D,
+         stageID: String? = nil,
+         distanceMeters: Double? = nil) {
         self.id = id
         self.title = title
         self.coordinate = coordinate
