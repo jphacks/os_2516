@@ -99,12 +99,25 @@ actor RemoteBattleService: BattleService {
 
     func send(_ action: BattleAction) async {
         log("send requested action=\(action)")
-        guard let socket = webSocketTask,
-              let sessionId = activeSessionId,
-              let playerId = selfPlayerId,
-              let opponentId = opponentPlayerId,
-              let state = currentState else {
-            log("send aborted due to missing session/socket state")
+
+        guard let socket = webSocketTask else {
+            log("send aborted: webSocketTask is nil")
+            return
+        }
+        guard let sessionId = activeSessionId else {
+            log("send aborted: activeSessionId is nil")
+            return
+        }
+        guard let playerId = selfPlayerId else {
+            log("send aborted: selfPlayerId is nil")
+            return
+        }
+        guard let opponentId = opponentPlayerId else {
+            log("send aborted: opponentPlayerId is nil")
+            return
+        }
+        guard let state = currentState else {
+            log("send aborted: currentState is nil")
             return
         }
 
@@ -391,6 +404,16 @@ actor RemoteBattleService: BattleService {
 
         if !(isTriggerSelf || isTriggerOpponent || isTargetSelf || isTargetOpponent) {
             log("event references unknown players trigger=\(event.triggerId) target=\(event.targetId)")
+        }
+
+        if opponentPlayerId == nil {
+            if event.triggerId != selfPlayerId {
+                opponentPlayerId = event.triggerId
+                log("opponentPlayerId inferred from event trigger=\(event.triggerId)")
+            } else if event.targetId != selfPlayerId {
+                opponentPlayerId = event.targetId
+                log("opponentPlayerId inferred from event target=\(event.targetId)")
+            }
         }
 
         if isTriggerSelf {
