@@ -8,8 +8,14 @@ struct BattleView: View {
     @Environment(\.openURL) private var openURL
     #endif
 
-    init(sessionID: String = "mock", service: BattleService = ServiceFactory.makeBattleService(), motionService: MotionService? = nil) {
-        _viewModel = StateObject(wrappedValue: BattleViewModel(sessionID: sessionID, service: service, motionService: motionService))
+    init(sessionID: String = "mock",
+         service: BattleService = ServiceFactory.makeBattleService(),
+         motionService: MotionService? = nil,
+         nearbyService: NearbyInteractionService? = nil) {
+        _viewModel = StateObject(wrappedValue: BattleViewModel(sessionID: sessionID,
+                                                               service: service,
+                                                               motionService: motionService,
+                                                               nearbyInteraction: nearbyService))
     }
 
     var body: some View {
@@ -68,6 +74,15 @@ struct BattleView: View {
                     .background(.thinMaterial, in: Capsule())
                     .padding([.top, .trailing], 12)
                     .accessibilityLabel(Text("走行中"))
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if viewModel.isNearbyInteractionAvailable {
+                NearbyInteractionIndicator(status: viewModel.nearbyStatus,
+                                           reading: viewModel.nearbyReading,
+                                           errorMessage: viewModel.nearbyErrorMessage)
+                .padding(.horizontal)
+                .padding(.bottom, 12)
             }
         }
         .onChange(of: viewModelPhase) { phase in
@@ -240,7 +255,7 @@ struct BattleView: View {
 #if DEBUG
 struct BattleView_Previews: PreviewProvider {
     static var previews: some View {
-        NavigationStack { BattleView() }
+        NavigationStack { BattleView(nearbyService: NearbyInteractionService()) }
     }
 }
 #endif

@@ -12,7 +12,7 @@ enum AppConfiguration {
             return url
         }
 
-        // TODO: 環境に合わせて適切なAPIエンドポイントを設定してください
-        return URL(string: "http://localhost:8080")!
+        // デフォルトは本番APIエンドポイントを直接参照する
+        return URL(string: "https://api-server-215122107853.asia-northeast1.run.app/")!
     }()
 }

@@ -23,4 +23,16 @@ protocol BattleService {
     // 互換API（暫定）: send後の最新状態を返す。将来削除想定。
     func perform(action: BattleAction) async throws -> BattleState
     func end() async
+    func publishNearbyInteractionToken(_ token: String) async
+    func nearbyInteractionEvents() async -> AsyncStream<NearbyInteractionEvent>
+}
+
+extension BattleService {
+    func publishNearbyInteractionToken(_ token: String) async {}
+
+    func nearbyInteractionEvents() async -> AsyncStream<NearbyInteractionEvent> {
+        AsyncStream { continuation in
+            continuation.finish()
+        }
+    }
 }

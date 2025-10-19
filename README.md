@@ -1,4 +1,4 @@
-# サンプル（プロダクト名）
+# Real Fighting Game（リアル版格闘ゲーム）
 
 [![IMAGE ALT TEXT HERE](https://jphacks.com/wp-content/uploads/2025/05/JPHACKS2025_ogp.jpg)](https://www.youtube.com/watch?v=lA9EluZugD8)
 
@@ -68,11 +68,8 @@ Core Hapticsによる振動フィードバック、詠唱による攻撃シス�
 
 ### 独自技術
 #### ハッカソンで開発した独自機能・技術
-<!-- 独自で開発したものの内容をこちらに記載してください
-特に力を入れた部分をファイルリンク、またはcommit_idを記載してください。 -->
-
 * **UWB位置検出システム**: Nearby Interaction Frameworkを活用した高精度位置検出
-  - 実装ファイル: `ios/RealFightingGame/Infrastructure/Location/LocationService.swift`
+  - 実装ファイル: `ios/RealFightingGame/Data/Location/LocationService.swift`
   - フォールバック機能: Bluetooth + 加速度センサーによる位置推定
 
 * **リアルタイム対戦エンジン**: WebSocket通信による低遅延ゲーム同期

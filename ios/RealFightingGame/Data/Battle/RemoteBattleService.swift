@@ -42,11 +42,17 @@ actor RemoteBattleService: BattleService {
         let event: WSEventPayload?
         let state: WSStatePayload?
         let error: WSErrorPayload?
+        let nearbyInteraction: WSNearbyInteractionPayload?
     }
 
     private struct WSErrorPayload: Decodable {
         let code: String
         let message: String
+    }
+
+    private struct WSNearbyInteractionPayload: Decodable {
+        let playerId: String
+        let token: String
     }
 
     private let baseURL: URL
@@ -62,6 +68,8 @@ actor RemoteBattleService: BattleService {
 
     private var streamContinuation: AsyncStream<BattleState>.Continuation?
     private var streamCache: AsyncStream<BattleState>?
+    private var nearbyEventContinuation: AsyncStream<NearbyInteractionEvent>.Continuation?
+    private var nearbyEventStream: AsyncStream<NearbyInteractionEvent>?
 
     private var webSocketTask: URLSessionWebSocketTask?
     private var receiveTask: Task<Void, Never>?
@@ -71,6 +79,7 @@ actor RemoteBattleService: BattleService {
 
     private let attackDamage = 12
     private let specialDamage = 26
+    private var lastPublishedNearbyToken: String?
 
     init(baseURL: URL, token: String, session: URLSession = .shared) {
         self.baseURL = baseURL
@@ -188,6 +197,22 @@ actor RemoteBattleService: BattleService {
         return stream
     }
 
+    func nearbyInteractionEvents() async -> AsyncStream<NearbyInteractionEvent> {
+        if let stream = nearbyEventStream {
+            log("nearbyInteractionEvents returning cached stream")
+            return stream
+        }
+
+        let stream = AsyncStream<NearbyInteractionEvent> { continuation in
+            Task { [weak self] in
+                await self?.setNearbyContinuation(continuation)
+            }
+        }
+        nearbyEventStream = stream
+        log("nearbyInteractionEvents created new stream")
+        return stream
+    }
+
     func perform(action: BattleAction) async throws -> BattleState {
         log("perform requested action=\(action)")
         await send(action)
@@ -210,12 +235,60 @@ actor RemoteBattleService: BattleService {
         streamContinuation?.finish()
         streamContinuation = nil
         streamCache = nil
+        nearbyEventContinuation?.finish()
+        nearbyEventContinuation = nil
+        nearbyEventStream = nil
+        lastPublishedNearbyToken = nil
         currentState = nil
         activeSessionId = nil
         selfPlayerId = nil
         opponentPlayerId = nil
         cancelScheduledReconnect()
         stopConnectionMonitor()
+    }
+
+    func publishNearbyInteractionToken(_ token: String) async {
+        guard token != lastPublishedNearbyToken else {
+            log("publishNearbyInteractionToken skipped: duplicate token")
+            return
+        }
+        guard let sessionId = activeSessionId,
+              let playerId = selfPlayerId else {
+            log("publishNearbyInteractionToken aborted: missing identifiers")
+            return
+        }
+
+        do {
+            try await ensureSocket()
+        } catch {
+            log("publishNearbyInteractionToken ensureSocket failed: \(error)")
+        }
+
+        guard let socket = webSocketTask else {
+            log("publishNearbyInteractionToken aborted: socket unavailable")
+            return
+        }
+
+        let message: [String: Any] = [
+            "kind": "nearby_interaction_token",
+            "session_id": sessionId,
+            "player_id": playerId,
+            "token": token
+        ]
+
+        guard let data = try? JSONSerialization.data(withJSONObject: message, options: []) else {
+            log("publishNearbyInteractionToken failed to encode message")
+            return
+        }
+
+        lastPublishedNearbyToken = token
+        socket.send(.data(data)) { [weak self] error in
+            if let error {
+                self?.log("publishNearbyInteractionToken send error: \(error)")
+            } else {
+                self?.log("publishNearbyInteractionToken sent successfully")
+            }
+        }
     }
 
     // MARK: - Private
@@ -330,6 +403,30 @@ actor RemoteBattleService: BattleService {
         }
         log("decoded message kind=\(payload.kind)")
 
+        if payload.kind == "nearby_interaction_token" {
+            if let info = payload.nearbyInteraction {
+                log("nearby token received playerId=\(info.playerId)")
+                if info.playerId == selfPlayerId {
+                    log("discarded self-issued nearby token")
+                } else if info.token.isEmpty {
+                    publishNearby(.cleared)
+                } else {
+                    publishNearby(.peerToken(info.token))
+                }
+            } else {
+                log("nearby token message lacked payload")
+            }
+            return
+        }
+
+        if payload.kind == "nearby_interaction_error" {
+            if let error = payload.error {
+                log("nearby interaction error received: \(error.message)")
+                publishNearby(.error(error.message))
+            }
+            return
+        }
+
         if let state = payload.state {
             log("state payload received players=\(state.players.count) status=\(state.status)")
             if opponentPlayerId == nil {
@@ -398,6 +495,16 @@ actor RemoteBattleService: BattleService {
             continuation.yield(state)
         }
         log("continuation set currentStateExists=\(currentState != nil)")
+    }
+
+    private func setNearbyContinuation(_ continuation: AsyncStream<NearbyInteractionEvent>.Continuation) async {
+        nearbyEventContinuation = continuation
+        log("nearby continuation set")
+    }
+
+    private func publishNearby(_ event: NearbyInteractionEvent) {
+        nearbyEventContinuation?.yield(event)
+        log("nearby event published \(event)")
     }
 
     private func publish(_ state: BattleState) {
