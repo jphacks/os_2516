@@ -18,6 +18,7 @@ final class BattleViewModel: ObservableObject {
     private let sessionID: String
     private let service: BattleService
     private let haptics: HapticsService
+    private let audio: AudioService
     private let motionService: MotionService?
     private var lastState: BattleState?
     private var isJoining = false
@@ -30,10 +31,15 @@ final class BattleViewModel: ObservableObject {
     private let manaRegenPerSecond: Int = 3
     let attackManaCost: Int = 5
 
-    init(sessionID: String, service: BattleService, haptics: HapticsService = ServiceFactory.makeHapticsService(), motionService: MotionService? = nil) {
+    init(sessionID: String,
+         service: BattleService,
+         haptics: HapticsService = ServiceFactory.makeHapticsService(),
+         audio: AudioService = ServiceFactory.makeAudioService(),
+         motionService: MotionService? = nil) {
         self.sessionID = sessionID
         self.service = service
         self.haptics = haptics
+        self.audio = audio
         self.motionService = motionService
     }
 
@@ -42,6 +48,7 @@ final class BattleViewModel: ObservableObject {
         isJoining = true
         phase = .ready
         haptics.prepare()
+        audio.prepare()
         // 権限状態を確認（.denied/.restricted の場合は案内表示用にフラグを立てる）
         let auth = CMPedometer.authorizationStatus()
         motionPermissionDenied = (auth == .denied || auth == .restricted)
@@ -77,14 +84,26 @@ final class BattleViewModel: ObservableObject {
                             // 被弾: 自HPが減少
                             if let prev, next.selfStatus.hp < prev.selfStatus.hp {
                                 self.haptics.playerHit()
+                                self.audio.play(effect: .hit)
                             }
                             // Special準備完了: <1.0 → >=1.0 にクロス
                             if let prev, prev.chantProgress < 1.0, next.chantProgress >= 1.0 {
                                 self.haptics.specialReady()
                             }
 
-                            if next.opponentStatus.hp <= 0 { self.phase = .result(.win); self.haptics.win() }
-                            else if next.selfStatus.hp <= 0 { self.phase = .result(.lose); self.haptics.lose() }
+                            if next.opponentStatus.hp <= 0 {
+                                if self.phase != .result(.win) {
+                                    self.phase = .result(.win)
+                                    self.haptics.win()
+                                    self.audio.play(effect: .win)
+                                }
+                            } else if next.selfStatus.hp <= 0 {
+                                if self.phase != .result(.lose) {
+                                    self.phase = .result(.lose)
+                                    self.haptics.lose()
+                                    self.audio.play(effect: .lose)
+                                }
+                            }
                         }
                     }
                 }
@@ -139,6 +158,7 @@ final class BattleViewModel: ObservableObject {
             await service.end()
         }
         haptics.stop()
+        audio.stopAll()
         motionStreamTask?.cancel(); motionStreamTask = nil
         manaRegenTask?.cancel(); manaRegenTask = nil
         stepRatePerSec = nil
