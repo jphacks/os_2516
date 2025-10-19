@@ -80,6 +80,7 @@ actor RemoteBattleService: BattleService {
     }
 
     func join(sessionID stageId: String) async throws -> BattleState {
+        log("join requested for stageId=\(stageId)")
         let response = try await createSession(stageId: stageId)
         activeSessionId = response.sessionId
         selfPlayerId = response.playerId
@@ -91,15 +92,21 @@ actor RemoteBattleService: BattleService {
 
         try await ensureSocket()
 
+        log("join completed sessionId=\(response.sessionId) selfPlayerId=\(response.playerId) opponentPlayerId=\(response.opponentId ?? "nil")")
+
         return state
     }
 
     func send(_ action: BattleAction) async {
+        log("send requested action=\(action)")
         guard let socket = webSocketTask,
               let sessionId = activeSessionId,
               let playerId = selfPlayerId,
               let opponentId = opponentPlayerId,
-              let state = currentState else { return }
+              let state = currentState else {
+            log("send aborted due to missing session/socket state")
+            return
+        }
 
         let next: (selfHp: Int, opponentHp: Int, category: String, type: String)?
         switch action {
@@ -125,29 +132,36 @@ actor RemoteBattleService: BattleService {
         ]
 
         guard let data = try? JSONSerialization.data(withJSONObject: message, options: []) else { return }
+        log("sending event sessionId=\(sessionId) triggerId=\(playerId) targetId=\(opponentId) hp=(self:\(payload.selfHp), opp:\(payload.opponentHp)) category=\(payload.category) type=\(payload.type)")
         socket.send(.data(data)) { [weak self] error in
             if let error {
-                print("[RemoteBattleService] send error: \(error)")
+                self?.log("send error: \(error)")
                 Task { await self?.closeSocket() }
+            } else {
+                self?.log("send completed successfully for type=\(payload.type)")
             }
         }
     }
 
     func states() async -> AsyncStream<BattleState> {
         if let stream = streamCache {
+            log("states returning cached stream")
             return stream
         }
 
         let stream = AsyncStream<BattleState> { continuation in
+            log("AsyncStream continuation established")
             Task { [weak self] in
                 await self?.setContinuation(continuation)
             }
         }
+        log("states creating new stream")
         streamCache = stream
         return stream
     }
 
     func perform(action: BattleAction) async throws -> BattleState {
+        log("perform requested action=\(action)")
         await send(action)
         guard let state = currentState else {
             throw NSError(domain: "RemoteBattleService", code: -1, userInfo: [NSLocalizedDescriptionKey: "state unavailable"])
@@ -156,10 +170,12 @@ actor RemoteBattleService: BattleService {
     }
 
     func end() async {
+        log("end requested")
         if let socket = webSocketTask {
             let message = ["kind": "end"]
             if let data = try? JSONSerialization.data(withJSONObject: message, options: []) {
                 socket.send(.data(data)) { _ in }
+                log("sent end message")
             }
         }
         await closeSocket()
@@ -175,7 +191,9 @@ actor RemoteBattleService: BattleService {
     // MARK: - Private
 
     private func createSession(stageId: String) async throws -> CreateSessionResponse {
-        var request = URLRequest(url: baseURL.appendingPathComponent("api/game_sessions"))
+        let url = baseURL.appendingPathComponent("api/game_sessions")
+        log("createSession request stageId=\(stageId) url=\(url.absoluteString)")
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         request.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -184,11 +202,14 @@ actor RemoteBattleService: BattleService {
 
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode) else {
+            log("createSession failed status=\((response as? HTTPURLResponse)?.statusCode ?? -1)")
             throw NSError(domain: "RemoteBattleService", code: httpStatusCode(response), userInfo: [NSLocalizedDescriptionKey: "session creation failed"])
         }
+        log("createSession succeeded status=\(http.statusCode)")
 
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         let payload = try decoder.decode(CreateSessionResponse.self, from: data)
+        log("createSession response sessionId=\(payload.sessionId) playerId=\(payload.playerId) opponentId=\(payload.opponentId ?? "nil")")
 
         if opponentPlayerId == nil {
             opponentPlayerId = payload.opponentId
@@ -198,9 +219,18 @@ actor RemoteBattleService: BattleService {
     }
 
     private func ensureSocket() async throws {
-        guard webSocketTask == nil,
-              let sessionId = activeSessionId,
-              let playerId = selfPlayerId else { return }
+        guard webSocketTask == nil else {
+            log("ensureSocket skipped because a socket already exists")
+            return
+        }
+
+        guard let sessionId = activeSessionId,
+              let playerId = selfPlayerId else {
+            log("ensureSocket aborted due to missing session/player identifiers")
+            return
+        }
+
+        log("ensureSocket begin sessionId=\(sessionId) playerId=\(playerId)")
 
         guard var components = URLComponents(url: baseURL.appendingPathComponent("ws"), resolvingAgainstBaseURL: false) else {
             throw NSError(domain: "RemoteBattleService", code: -2, userInfo: [NSLocalizedDescriptionKey: "invalid websocket url"])
@@ -227,6 +257,7 @@ actor RemoteBattleService: BattleService {
         let task = session.webSocketTask(with: request)
         task.resume()
         webSocketTask = task
+        log("websocket started url=\(url.absoluteString)")
         receiveTask = Task { [weak self] in
             await self?.receiveLoop()
         }
@@ -234,42 +265,63 @@ actor RemoteBattleService: BattleService {
 
     private func receiveLoop() async {
         guard let socket = webSocketTask else { return }
+        log("receiveLoop started")
         while true {
             do {
                 let message = try await socket.receive()
                 switch message {
                 case .data(let data):
+                    log("received data message bytes=\(data.count)")
                     await handle(messageData: data)
                 case .string(let string):
+                    log("received string message length=\(string.count)")
                     if let data = string.data(using: .utf8) {
                         await handle(messageData: data)
                     }
                 @unknown default:
+                    log("received unknown message")
                     break
                 }
             } catch {
+                log("receiveLoop error: \(error)")
                 break
             }
         }
+        log("receiveLoop ended")
         await closeSocket()
     }
 
     private func handle(messageData: Data) async {
         decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let raw = String(data: messageData, encoding: .utf8) ?? "<binary>"
         guard let payload = try? decoder.decode(WSServerMessage.self, from: messageData) else {
+            log("failed to decode message raw=\(raw)")
             return
         }
+        log("decoded message kind=\(payload.kind)")
 
         if let state = payload.state {
+            log("state payload received players=\(state.players.count) status=\(state.status)")
             if opponentPlayerId == nil {
                 if let other = state.players.first(where: { $0.playerId != selfPlayerId }) {
                     opponentPlayerId = other.playerId
+                    log("opponentPlayerId resolved=\(other.playerId)")
                 }
             }
 
             let battleState = makeBattleState(from: state)
             currentState = battleState
             publish(battleState)
+            log("state updated selfHp=\(battleState.selfStatus.hp) opponentHp=\(battleState.opponentStatus.hp)")
+        }
+
+        if let event = payload.event {
+            log("event payload category=\(event.category) type=\(event.type) triggerId=\(event.triggerId) targetId=\(event.targetId) triggerHp=\(event.triggerHp) targetHp=\(event.targetHp)")
+            apply(event: event)
+        }
+
+        if let error = payload.error {
+            log("server error code=\(error.code) message=\(error.message)")
         }
     }
 
@@ -315,10 +367,57 @@ actor RemoteBattleService: BattleService {
         if let state = currentState {
             continuation.yield(state)
         }
+        log("continuation set currentStateExists=\(currentState != nil)")
     }
 
     private func publish(_ state: BattleState) {
         streamContinuation?.yield(state)
+        log("state published selfHp=\(state.selfStatus.hp) opponentHp=\(state.opponentStatus.hp)")
+    }
+
+    private func apply(event: WSEventPayload) {
+        guard var state = currentState else {
+            log("apply(event:) skipped because currentState is nil")
+            return
+        }
+
+        var selfStatus = state.selfStatus
+        var opponentStatus = state.opponentStatus
+
+        let isTriggerSelf = event.triggerId == selfPlayerId
+        let isTargetSelf = event.targetId == selfPlayerId
+        let isTriggerOpponent = event.triggerId == opponentPlayerId
+        let isTargetOpponent = event.targetId == opponentPlayerId
+
+        if !(isTriggerSelf || isTriggerOpponent || isTargetSelf || isTargetOpponent) {
+            log("event references unknown players trigger=\(event.triggerId) target=\(event.targetId)")
+        }
+
+        if isTriggerSelf {
+            selfStatus = selfStatus.with(hp: event.triggerHp, mana: event.triggerMp)
+        } else if isTriggerOpponent {
+            opponentStatus = opponentStatus.with(hp: event.triggerHp, mana: event.triggerMp)
+        }
+
+        if isTargetSelf {
+            selfStatus = selfStatus.with(hp: event.targetHp, mana: event.targetMp)
+        } else if isTargetOpponent {
+            opponentStatus = opponentStatus.with(hp: event.targetHp, mana: event.targetMp)
+        }
+
+        let selfChanged = selfStatus.hp != state.selfStatus.hp || selfStatus.mana != state.selfStatus.mana
+        let opponentChanged = opponentStatus.hp != state.opponentStatus.hp || opponentStatus.mana != state.opponentStatus.mana
+
+        guard selfChanged || opponentChanged else {
+            log("event caused no state change (ids trigger=\(event.triggerId) target=\(event.targetId))")
+            return
+        }
+
+        state.selfStatus = selfStatus
+        state.opponentStatus = opponentStatus
+        currentState = state
+        publish(state)
+        log("event applied selfHp=\(selfStatus.hp) opponentHp=\(opponentStatus.hp)")
     }
 
     private func closeSocket() async {
@@ -326,10 +425,15 @@ actor RemoteBattleService: BattleService {
         receiveTask = nil
         webSocketTask?.cancel(with: .normalClosure, reason: nil)
         webSocketTask = nil
+        log("websocket closed")
     }
 
     private func httpStatusCode(_ response: URLResponse) -> Int {
         (response as? HTTPURLResponse)?.statusCode ?? -1
+    }
+
+    nonisolated private func log(_ message: String) {
+        print("[RemoteBattleService] \(message)")
     }
 }
 
@@ -338,5 +442,17 @@ private extension URL {
         var components = URLComponents(url: self, resolvingAgainstBaseURL: false)
         components?.scheme = scheme
         return components?.url ?? self
+    }
+}
+
+private extension BattleParticipant {
+    func with(hp: Int, mana: Int?) -> BattleParticipant {
+        BattleParticipant(
+            displayName: displayName,
+            hp: hp,
+            maxHp: maxHp,
+            mana: mana ?? self.mana,
+            maxMana: maxMana
+        )
     }
 }
