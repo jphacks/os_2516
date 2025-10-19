@@ -67,6 +67,7 @@ actor RemoteBattleService: BattleService {
     private var receiveTask: Task<Void, Never>?
     private var reconnectionTask: Task<Void, Never>?
     private var reconnectDelayNanoseconds: UInt64 = RemoteBattleService.initialReconnectDelay
+    private var connectionMonitorTask: Task<Void, Never>?
 
     private let attackDamage = 12
     private let specialDamage = 26
@@ -95,6 +96,7 @@ actor RemoteBattleService: BattleService {
         publish(state)
 
         try await ensureSocket()
+        startConnectionMonitor()
 
         log("join completed sessionId=\(response.sessionId) selfPlayerId=\(response.playerId) opponentPlayerId=\(response.opponentId ?? "nil")")
 
@@ -213,6 +215,7 @@ actor RemoteBattleService: BattleService {
         selfPlayerId = nil
         opponentPlayerId = nil
         cancelScheduledReconnect()
+        stopConnectionMonitor()
     }
 
     // MARK: - Private
@@ -467,6 +470,7 @@ actor RemoteBattleService: BattleService {
             scheduleReconnect()
         } else {
             cancelScheduledReconnect()
+            stopConnectionMonitor()
         }
     }
 
@@ -517,10 +521,41 @@ actor RemoteBattleService: BattleService {
             try await ensureSocket()
             log("attemptReconnect succeeded")
             reconnectDelayNanoseconds = RemoteBattleService.initialReconnectDelay
+            startConnectionMonitor()
         } catch {
             log("attemptReconnect failed: \(error)")
             reconnectDelayNanoseconds = min(reconnectDelayNanoseconds * 2, RemoteBattleService.maxReconnectDelay)
             scheduleReconnect()
+        }
+    }
+
+    private func startConnectionMonitor() {
+        guard connectionMonitorTask == nil else { return }
+        connectionMonitorTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: RemoteBattleService.monitorInterval)
+                await self.ensureSocketIfNeeded()
+            }
+        }
+        log("connection monitor started")
+    }
+
+    private func stopConnectionMonitor() {
+        guard connectionMonitorTask != nil else { return }
+        connectionMonitorTask?.cancel()
+        connectionMonitorTask = nil
+        log("connection monitor stopped")
+    }
+
+    private func ensureSocketIfNeeded() async {
+        guard activeSessionId != nil else { return }
+        guard webSocketTask == nil else { return }
+        log("connection monitor detected missing socket; ensuring connection")
+        do {
+            try await ensureSocket()
+        } catch {
+            log("connection monitor failed to ensure socket: \(error)")
         }
     }
 }
@@ -536,6 +571,7 @@ private extension URL {
 extension RemoteBattleService {
     private static let initialReconnectDelay: UInt64 = 1_000_000_000
     private static let maxReconnectDelay: UInt64 = 8_000_000_000
+    private static let monitorInterval: UInt64 = 1_500_000_000
 }
 
 private extension BattleParticipant {
