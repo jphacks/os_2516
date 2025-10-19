@@ -1,3 +1,4 @@
+import CoreLocation
 import Foundation
 
 actor RemoteBattleService: BattleService {
@@ -37,16 +38,94 @@ actor RemoteBattleService: BattleService {
         let type: String
     }
 
+    private struct WSPositionPayload: Decodable {
+        struct Location: Decodable {
+            let lat: Double
+            let lon: Double
+            let alt: Double?
+        }
+
+        struct Accuracy: Decodable {
+            let horizontal: Double
+            let vertical: Double?
+            let heading: Double?
+        }
+
+        let playerId: String
+        let timestamp: Date
+        let location: Location
+        let heading: Double
+        let accuracy: Accuracy?
+    }
+
+    private struct WSAttackResultPayload: Decodable {
+        let attackId: String
+        let attackerId: String
+        let targetId: String
+        let chargeLevel: Int
+        let hit: Bool
+        let damage: Int
+        let triggerHp: Int
+        let targetHp: Int
+        let triggerMp: Int?
+        let targetMp: Int?
+        let occurredAt: Date
+    }
+
     private struct WSServerMessage: Decodable {
         let kind: String
         let event: WSEventPayload?
         let state: WSStatePayload?
+        let position: WSPositionPayload?
+        let attackResult: WSAttackResultPayload?
         let error: WSErrorPayload?
+        let info: String?
     }
 
     private struct WSErrorPayload: Decodable {
         let code: String
         let message: String
+    }
+
+    private struct PositionUpdateMessage: Encodable {
+        let kind = "position_update"
+        let sessionId: String
+        let payload: Payload
+
+        struct Payload: Encodable {
+            struct Location: Encodable {
+                let lat: Double
+                let lon: Double
+                let alt: Double?
+            }
+
+            struct Accuracy: Encodable {
+                let horizontal: Double
+                let vertical: Double?
+                let heading: Double?
+            }
+
+            let timestamp: Date
+            let location: Location
+            let heading: Double
+            let accuracy: Accuracy?
+        }
+    }
+
+    private struct AttackTriggerMessage: Encodable {
+        let kind = "attack_triggered"
+        let sessionId: String
+        let targetId: String
+        let payload: Payload
+
+        struct Payload: Encodable {
+            let timestamp: Date
+            let location: PositionUpdateMessage.Payload.Location
+            let heading: Double
+            let accuracy: PositionUpdateMessage.Payload.Accuracy?
+            let attackId: String
+            let chargeLevel: Int?
+        }
     }
 
     private let baseURL: URL
@@ -69,6 +148,9 @@ actor RemoteBattleService: BattleService {
     private var reconnectDelayNanoseconds: UInt64 = RemoteBattleService.initialReconnectDelay
     private var connectionMonitorTask: Task<Void, Never>?
 
+    private var latestPositions: [String: WSPositionPayload] = [:]
+    private var lastKnownSelfPosition: BattlePositionUpdate?
+
     private let attackDamage = 12
     private let specialDamage = 26
 
@@ -76,10 +158,15 @@ actor RemoteBattleService: BattleService {
         self.baseURL = baseURL
         self.token = token
         self.session = session
-        self.encoder = JSONEncoder()
-        self.decoder = JSONDecoder()
-        self.decoder.keyDecodingStrategy = .convertFromSnakeCase
-        self.encoder.keyEncodingStrategy = .convertToSnakeCase
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        encoder.dateEncodingStrategy = .iso8601
+        self.encoder = encoder
+
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        decoder.dateDecodingStrategy = .iso8601
+        self.decoder = decoder
     }
 
     func join(sessionID stageId: String) async throws -> BattleState {
@@ -104,70 +191,55 @@ actor RemoteBattleService: BattleService {
     }
 
     func send(_ action: BattleAction) async {
-        log("send requested action=\(action)")
-
-        if webSocketTask == nil {
-            log("send detected missing socket; attempting to re-establish")
-            do {
-                try await ensureSocket()
-            } catch {
-                log("send failed to ensure socket: \(error)")
-            }
-        }
-
-        guard let socket = webSocketTask else {
-            log("send aborted: webSocketTask is nil")
-            return
-        }
-        guard let sessionId = activeSessionId else {
-            log("send aborted: activeSessionId is nil")
-            return
-        }
-        guard let playerId = selfPlayerId else {
-            log("send aborted: selfPlayerId is nil")
-            return
-        }
-        guard let opponentId = opponentPlayerId else {
-            log("send aborted: opponentPlayerId is nil")
-            return
-        }
-        guard let state = currentState else {
-            log("send aborted: currentState is nil")
+        guard let sessionId = activeSessionId,
+              let playerId = selfPlayerId,
+              let opponentId = opponentPlayerId else {
+            log("send aborted due to missing identifiers")
             return
         }
 
-        let next: (selfHp: Int, opponentHp: Int, category: String, type: String)?
+        let payload: (selfHp: Int, opponentHp: Int, category: String, type: String)?
         switch action {
         case .attack:
-            next = (state.selfStatus.hp, max(0, state.opponentStatus.hp - attackDamage), "attack", "basic")
+            payload = (currentState?.selfStatus.hp ?? 0,
+                       max(0, (currentState?.opponentStatus.hp ?? 0) - attackDamage),
+                       "attack",
+                       "basic")
         case .guard:
-            next = (state.selfStatus.hp, state.opponentStatus.hp, "system", "guard")
+            payload = (currentState?.selfStatus.hp ?? 0,
+                       currentState?.opponentStatus.hp ?? 0,
+                       "system",
+                       "guard")
         case .special:
-            next = (state.selfStatus.hp, max(0, state.opponentStatus.hp - specialDamage), "attack", "special")
+            payload = (currentState?.selfStatus.hp ?? 0,
+                       max(0, (currentState?.opponentStatus.hp ?? 0) - specialDamage),
+                       "attack",
+                       "special")
         }
 
-        guard let payload = next else { return }
-
+        guard let info = payload else { return }
         let message: [String: Any] = [
             "kind": "event",
             "session_id": sessionId,
             "trigger_id": playerId,
             "target_id": opponentId,
-            "trigger_hp": payload.selfHp,
-            "target_hp": payload.opponentHp,
-            "category": payload.category,
-            "type": payload.type
+            "trigger_hp": info.selfHp,
+            "target_hp": info.opponentHp,
+            "category": info.category,
+            "type": info.type
         ]
 
         guard let data = try? JSONSerialization.data(withJSONObject: message, options: []) else { return }
-        log("sending event sessionId=\(sessionId) triggerId=\(playerId) targetId=\(opponentId) hp=(self:\(payload.selfHp), opp:\(payload.opponentHp)) category=\(payload.category) type=\(payload.type)")
-        socket.send(.data(data)) { [weak self] error in
-            if let error {
-                self?.log("send error: \(error)")
-                Task { await self?.closeSocket() }
-            } else {
-                self?.log("send completed successfully for type=\(payload.type)")
+        do {
+            try await ensureSocket()
+            guard let socket = webSocketTask else { return }
+            socket.send(.data(data)) { [weak self] error in
+                if let error {
+                    self?.log("send error: \(error)")
+                }
             }
+        } catch {
+            log("send ensureSocket failed: \(error)")
         }
     }
 
@@ -178,7 +250,6 @@ actor RemoteBattleService: BattleService {
         }
 
         let stream = AsyncStream<BattleState> { continuation in
-            log("AsyncStream continuation established")
             Task { [weak self] in
                 await self?.setContinuation(continuation)
             }
@@ -189,7 +260,6 @@ actor RemoteBattleService: BattleService {
     }
 
     func perform(action: BattleAction) async throws -> BattleState {
-        log("perform requested action=\(action)")
         await send(action)
         guard let state = currentState else {
             throw NSError(domain: "RemoteBattleService", code: -1, userInfo: [NSLocalizedDescriptionKey: "state unavailable"])
@@ -214,11 +284,95 @@ actor RemoteBattleService: BattleService {
         activeSessionId = nil
         selfPlayerId = nil
         opponentPlayerId = nil
+        latestPositions.removeAll()
+        lastKnownSelfPosition = nil
         cancelScheduledReconnect()
         stopConnectionMonitor()
     }
 
-    // MARK: - Private
+    func sendPositionUpdate(_ update: BattlePositionUpdate) async {
+        guard let sessionId = activeSessionId,
+              let playerId = selfPlayerId else {
+            log("position update skipped: identifiers unavailable")
+            return
+        }
+        lastKnownSelfPosition = update
+        let payload = PositionUpdateMessage.Payload(
+            timestamp: update.timestamp,
+            location: .init(lat: update.coordinate.latitude, lon: update.coordinate.longitude, alt: update.altitude),
+            heading: update.heading,
+            accuracy: PositionUpdateMessage.Payload.Accuracy(
+                horizontal: update.horizontalAccuracy,
+                vertical: update.verticalAccuracy,
+                heading: update.headingAccuracy
+            )
+        )
+        let message = PositionUpdateMessage(sessionId: sessionId, payload: payload)
+        do {
+            try await ensureSocket()
+            guard let socket = webSocketTask else { return }
+            let data = try encoder.encode(message)
+            socket.send(.data(data)) { [weak self] error in
+                if let error { self?.log("position send error: \(error)") }
+            }
+        } catch {
+            log("position ensureSocket failed: \(error)")
+        }
+    }
+
+    func triggerAttack(with context: BattleAttackContext) async {
+        guard let sessionId = activeSessionId,
+              let playerId = selfPlayerId else {
+            log("attack trigger skipped: identifiers unavailable")
+            return
+        }
+        let opponentId: String
+        if let existing = opponentPlayerId {
+            opponentId = existing
+        } else if let stateOpp = currentState?.opponentStatus.displayName { // fallback logging
+            log("opponent id unresolved while triggering attack (\(stateOpp))")
+            return
+        } else {
+            log("opponent id unresolved while triggering attack")
+            return
+        }
+
+        lastKnownSelfPosition = context.position
+        let location = PositionUpdateMessage.Payload.Location(
+            lat: context.position.coordinate.latitude,
+            lon: context.position.coordinate.longitude,
+            alt: context.position.altitude
+        )
+        let accuracy = PositionUpdateMessage.Payload.Accuracy(
+            horizontal: context.position.horizontalAccuracy,
+            vertical: context.position.verticalAccuracy,
+            heading: context.position.headingAccuracy
+        )
+        let message = AttackTriggerMessage(
+            sessionId: sessionId,
+            targetId: opponentId,
+            payload: .init(
+                timestamp: context.position.timestamp,
+                location: location,
+                heading: context.position.heading,
+                accuracy: accuracy,
+                attackId: context.attackId?.uuidString ?? UUID().uuidString,
+                chargeLevel: context.chargeLevel
+            )
+        )
+        do {
+            try await ensureSocket()
+            guard let socket = webSocketTask else { return }
+            let data = try encoder.encode(message)
+            socket.send(.data(data)) { [weak self] error in
+                if let error { self?.log("attack trigger send error: \(error)") }
+            }
+        } catch {
+            log("attack trigger ensureSocket failed: \(error)")
+        }
+    }
+
+    // MARK: - Private helpers
 
     private func createSession(stageId: String) async throws -> CreateSessionResponse {
         let url = baseURL.appendingPathComponent("api/game_sessions")
@@ -237,7 +391,6 @@ actor RemoteBattleService: BattleService {
         }
         log("createSession succeeded status=\(http.statusCode)")
 
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
         let payload = try decoder.decode(CreateSessionResponse.self, from: data)
         log("createSession response sessionId=\(payload.sessionId) playerId=\(payload.playerId) opponentId=\(payload.opponentId ?? "nil")")
 
@@ -256,11 +409,9 @@ actor RemoteBattleService: BattleService {
 
         guard let sessionId = activeSessionId,
               let playerId = selfPlayerId else {
-            log("ensureSocket aborted due to missing session/player identifiers")
+            log("ensureSocket aborted: missing identifiers")
             return
         }
-
-        log("ensureSocket begin sessionId=\(sessionId) playerId=\(playerId)")
 
         guard var components = URLComponents(url: baseURL.appendingPathComponent("ws"), resolvingAgainstBaseURL: false) else {
             throw NSError(domain: "RemoteBattleService", code: -2, userInfo: [NSLocalizedDescriptionKey: "invalid websocket url"])
@@ -301,15 +452,12 @@ actor RemoteBattleService: BattleService {
                 let message = try await socket.receive()
                 switch message {
                 case .data(let data):
-                    log("received data message bytes=\(data.count)")
                     await handle(messageData: data)
                 case .string(let string):
-                    log("received string message length=\(string.count)")
                     if let data = string.data(using: .utf8) {
                         await handle(messageData: data)
                     }
                 @unknown default:
-                    log("received unknown message")
                     break
                 }
             } catch {
@@ -322,7 +470,6 @@ actor RemoteBattleService: BattleService {
     }
 
     private func handle(messageData: Data) async {
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
         let raw = String(data: messageData, encoding: .utf8) ?? "<binary>"
         guard let payload = try? decoder.decode(WSServerMessage.self, from: messageData) else {
             log("failed to decode message raw=\(raw)")
@@ -330,29 +477,73 @@ actor RemoteBattleService: BattleService {
         }
         log("decoded message kind=\(payload.kind)")
 
-        if let state = payload.state {
-            log("state payload received players=\(state.players.count) status=\(state.status)")
-            if opponentPlayerId == nil {
-                if let other = state.players.first(where: { $0.playerId != selfPlayerId }) {
-                    opponentPlayerId = other.playerId
-                    log("opponentPlayerId resolved=\(other.playerId)")
-                }
-            }
-
-            let battleState = makeBattleState(from: state)
-            currentState = battleState
-            publish(battleState)
-            log("state updated selfHp=\(battleState.selfStatus.hp) opponentHp=\(battleState.opponentStatus.hp)")
+        if let statePayload = payload.state {
+            apply(statePayload)
         }
 
         if let event = payload.event {
-            log("event payload category=\(event.category) type=\(event.type) triggerId=\(event.triggerId) targetId=\(event.targetId) triggerHp=\(event.triggerHp) targetHp=\(event.targetHp)")
             apply(event: event)
+        }
+
+        if let position = payload.position {
+            apply(position: position)
+        }
+
+        if let result = payload.attackResult {
+            log("attack_result received hit=\(result.hit) damage=\(result.damage)")
         }
 
         if let error = payload.error {
             log("server error code=\(error.code) message=\(error.message)")
         }
+    }
+
+    private func apply(_ statePayload: WSStatePayload) {
+        if opponentPlayerId == nil {
+            if let other = statePayload.players.first(where: { $0.playerId != selfPlayerId }) {
+                opponentPlayerId = other.playerId
+                log("opponentPlayerId resolved=\(other.playerId)")
+            }
+        }
+
+        let newState = makeBattleState(from: statePayload)
+        currentState = newState
+        publish(newState)
+        log("state updated selfHp=\(newState.selfStatus.hp) opponentHp=\(newState.opponentStatus.hp)")
+    }
+
+    private func apply(position: WSPositionPayload) {
+        latestPositions[position.playerId] = position
+        updateTelemetryFromPositions()
+    }
+
+    private func updateTelemetryFromPositions() {
+        guard var state = currentState else { return }
+        guard let selfId = selfPlayerId else { return }
+        guard let selfPos = latestPositions[selfId] else { return }
+
+        let opponentId: String
+        if let cached = opponentPlayerId {
+            opponentId = cached
+        } else if let inferred = latestPositions.keys.first(where: { $0 != selfId }) {
+            opponentPlayerId = inferred
+            opponentId = inferred
+        } else {
+            return
+        }
+
+        guard let opponentPos = latestPositions[opponentId] else { return }
+
+        let selfLocation = CLLocation(latitude: selfPos.location.lat, longitude: selfPos.location.lon)
+        let opponentLocation = CLLocation(latitude: opponentPos.location.lat, longitude: opponentPos.location.lon)
+        let distance = selfLocation.distance(from: opponentLocation)
+        let heading = opponentPos.heading
+        let timestamp = opponentPos.timestamp
+
+        let telemetry = BattleTelemetry(distanceMeters: distance, headingDegrees: heading, lastUpdate: timestamp)
+        state.telemetry = telemetry
+        currentState = state
+        publish(state)
     }
 
     private func makeBattleState(from state: WSStatePayload) -> BattleState {
@@ -362,7 +553,6 @@ actor RemoteBattleService: BattleService {
                 opponentPlayerId = other.playerId
             }
         }
-
         let opponent = state.players.first { $0.playerId == opponentPlayerId }
 
         let selfStatus = BattleParticipant(
@@ -402,12 +592,11 @@ actor RemoteBattleService: BattleService {
 
     private func publish(_ state: BattleState) {
         streamContinuation?.yield(state)
-        log("state published selfHp=\(state.selfStatus.hp) opponentHp=\(state.opponentStatus.hp)")
     }
 
     private func apply(event: WSEventPayload) {
         guard var state = currentState else {
-            log("apply(event:) skipped because currentState is nil")
+            log("event ignored due to missing state")
             return
         }
 
@@ -418,20 +607,6 @@ actor RemoteBattleService: BattleService {
         let isTargetSelf = event.targetId == selfPlayerId
         let isTriggerOpponent = event.triggerId == opponentPlayerId
         let isTargetOpponent = event.targetId == opponentPlayerId
-
-        if !(isTriggerSelf || isTriggerOpponent || isTargetSelf || isTargetOpponent) {
-            log("event references unknown players trigger=\(event.triggerId) target=\(event.targetId)")
-        }
-
-        if opponentPlayerId == nil {
-            if event.triggerId != selfPlayerId {
-                opponentPlayerId = event.triggerId
-                log("opponentPlayerId inferred from event trigger=\(event.triggerId)")
-            } else if event.targetId != selfPlayerId {
-                opponentPlayerId = event.targetId
-                log("opponentPlayerId inferred from event target=\(event.targetId)")
-            }
-        }
 
         if isTriggerSelf {
             selfStatus = selfStatus.with(hp: event.triggerHp, mana: event.triggerMp)
@@ -448,16 +623,12 @@ actor RemoteBattleService: BattleService {
         let selfChanged = selfStatus.hp != state.selfStatus.hp || selfStatus.mana != state.selfStatus.mana
         let opponentChanged = opponentStatus.hp != state.opponentStatus.hp || opponentStatus.mana != state.opponentStatus.mana
 
-        guard selfChanged || opponentChanged else {
-            log("event caused no state change (ids trigger=\(event.triggerId) target=\(event.targetId))")
-            return
-        }
+        guard selfChanged || opponentChanged else { return }
 
         state.selfStatus = selfStatus
         state.opponentStatus = opponentStatus
         currentState = state
         publish(state)
-        log("event applied selfHp=\(selfStatus.hp) opponentHp=\(opponentStatus.hp)")
     }
 
     private func closeSocket(shouldReconnect: Bool = true) async {
@@ -474,14 +645,6 @@ actor RemoteBattleService: BattleService {
         }
     }
 
-    private func httpStatusCode(_ response: URLResponse) -> Int {
-        (response as? HTTPURLResponse)?.statusCode ?? -1
-    }
-
-    nonisolated private func log(_ message: String) {
-        print("[RemoteBattleService] \(message)")
-    }
-
     private func scheduleReconnect() {
         guard activeSessionId != nil else {
             log("scheduleReconnect skipped: no active session")
@@ -493,14 +656,24 @@ actor RemoteBattleService: BattleService {
         }
 
         let delay = reconnectDelayNanoseconds
-        log("scheduleReconnect scheduled in \(Double(delay) / 1_000_000_000)s")
         reconnectionTask = Task { [weak self] in
-            do {
-                try await Task.sleep(nanoseconds: delay)
-            } catch {
-                return
-            }
-            await self?.attemptReconnect()
+            guard let self else { return }
+            await self.performReconnectAttempt(after: delay)
+        }
+    }
+
+    private func performReconnectAttempt(after delay: UInt64) async {
+        log("reconnect scheduled delay=\(Double(delay)/1_000_000_000.0)s")
+        try? await Task.sleep(nanoseconds: delay)
+        do {
+            try await ensureSocket()
+            reconnectDelayNanoseconds = RemoteBattleService.initialReconnectDelay
+            reconnectionTask = nil
+        } catch {
+            log("reconnect attempt failed: \(error)")
+            reconnectDelayNanoseconds = min(delay * 2, 30_000_000_000)
+            reconnectionTask = nil
+            scheduleReconnect()
         }
     }
 
@@ -509,79 +682,55 @@ actor RemoteBattleService: BattleService {
         reconnectionTask = nil
     }
 
-    private func attemptReconnect() async {
-        reconnectionTask = nil
-        guard webSocketTask == nil else {
-            log("attemptReconnect skipped: socket already exists")
-            reconnectDelayNanoseconds = RemoteBattleService.initialReconnectDelay
-            return
-        }
-
-        do {
-            try await ensureSocket()
-            log("attemptReconnect succeeded")
-            reconnectDelayNanoseconds = RemoteBattleService.initialReconnectDelay
-            startConnectionMonitor()
-        } catch {
-            log("attemptReconnect failed: \(error)")
-            reconnectDelayNanoseconds = min(reconnectDelayNanoseconds * 2, RemoteBattleService.maxReconnectDelay)
-            scheduleReconnect()
-        }
-    }
-
     private func startConnectionMonitor() {
         guard connectionMonitorTask == nil else { return }
         connectionMonitorTask = Task { [weak self] in
             guard let self else { return }
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: RemoteBattleService.monitorInterval)
-                await self.ensureSocketIfNeeded()
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                if await self.webSocketTask == nil {
+                    do {
+                        try await self.ensureSocket()
+                    } catch {
+                        self.log("connection monitor ensureSocket failed: \(error)")
+                    }
+                }
             }
         }
-        log("connection monitor started")
     }
 
     private func stopConnectionMonitor() {
-        guard connectionMonitorTask != nil else { return }
         connectionMonitorTask?.cancel()
         connectionMonitorTask = nil
-        log("connection monitor stopped")
     }
 
-    private func ensureSocketIfNeeded() async {
-        guard activeSessionId != nil else { return }
-        guard webSocketTask == nil else { return }
-        log("connection monitor detected missing socket; ensuring connection")
-        do {
-            try await ensureSocket()
-        } catch {
-            log("connection monitor failed to ensure socket: \(error)")
-        }
+    private func httpStatusCode(_ response: URLResponse) -> Int {
+        (response as? HTTPURLResponse)?.statusCode ?? -1
     }
-}
 
-private extension URL {
-    func replacingScheme(_ scheme: String) -> URL {
-        var components = URLComponents(url: self, resolvingAgainstBaseURL: false)
-        components?.scheme = scheme
-        return components?.url ?? self
+    nonisolated private func log(_ message: String) {
+        print("[RemoteBattleService] \(message)")
     }
-}
-
-extension RemoteBattleService {
-    private static let initialReconnectDelay: UInt64 = 1_000_000_000
-    private static let maxReconnectDelay: UInt64 = 8_000_000_000
-    private static let monitorInterval: UInt64 = 1_500_000_000
 }
 
 private extension BattleParticipant {
     func with(hp: Int, mana: Int?) -> BattleParticipant {
-        BattleParticipant(
-            displayName: displayName,
-            hp: hp,
-            maxHp: maxHp,
-            mana: mana ?? self.mana,
-            maxMana: maxMana
-        )
+        BattleParticipant(displayName: displayName,
+                          hp: hp,
+                          maxHp: maxHp,
+                          mana: mana ?? self.mana,
+                          maxMana: maxMana)
     }
+}
+
+private extension URL {
+    func replacingScheme(_ newScheme: String) -> URL {
+        var components = URLComponents(url: self, resolvingAgainstBaseURL: false)
+        components?.scheme = newScheme
+        return components?.url ?? self
+    }
+}
+
+private extension RemoteBattleService {
+    static let initialReconnectDelay: UInt64 = 1_000_000_000
 }

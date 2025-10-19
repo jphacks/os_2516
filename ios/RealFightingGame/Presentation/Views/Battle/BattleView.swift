@@ -12,8 +12,14 @@ struct BattleView: View {
     @Environment(\.openURL) private var openURL
     #endif
 
-    init(sessionID: String = "mock", service: BattleService = ServiceFactory.makeBattleService(), motionService: MotionService? = nil) {
-        _viewModel = StateObject(wrappedValue: BattleViewModel(sessionID: sessionID, service: service, motionService: motionService))
+    init(sessionID: String = "mock",
+         service: BattleService = ServiceFactory.makeBattleService(),
+         motionService: MotionService? = nil,
+         locationService: LocationService? = nil) {
+        _viewModel = StateObject(wrappedValue: BattleViewModel(sessionID: sessionID,
+                                                               service: service,
+                                                               motionService: motionService,
+                                                               locationService: locationService))
     }
 
     var body: some View {

@@ -1,0 +1,4 @@
+- モノレポ構成で iOS クライアント(`ios/RealFightingGame`)と Go バックエンド(`Server/`)を同居させたリアル版格闘ゲームプロジェクト。
+- プレイヤーは現実空間で移動しながら魔法攻撃を行うコンセプトで、端末間の位置同期・攻撃判定・HP/MP 管理などを扱う。
+- iOS は SwiftUI + MVVM、位置取得(UWB/フォールバック), WebSocket 通信, CoreHaptics を使用予定。
+- サーバーは Go 製 (Cloud Run デプロイ想定) で WebSocket/REST、JWT 認証、Supabase/PostgreSQL を利用する。

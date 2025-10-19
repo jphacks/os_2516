@@ -1,0 +1,6 @@
+- `cd ios && xcodebuild -scheme RealFightingGame -destination "platform=iOS Simulator,name=iPhone 15" build` : iOS スモークビルド。
+- `cd ios && xcodebuild test -scheme RealFightingGame -destination "platform=iOS Simulator,name=iPhone 15"` : iOS テスト。
+- `cd Server && GOCACHE=$(pwd)/.gocache go run cmd/server/main.go` : Go サーバー起動。
+- `cd Server && go test ./...` : Go バックエンドのテスト。
+- `psql $DATABASE_URL -f migrations/001_create_auth_tables.sql` : 認証用テーブルのマイグレーション。
+- `docker build -t os2516-server:local .` / `docker run --rm -p 8080:8080 ...` : サーバーのローカル検証用 Docker。

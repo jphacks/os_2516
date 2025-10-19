@@ -2,18 +2,12 @@ import Foundation
 
 enum ServiceFactory {
     static func makeBattleService() -> BattleService {
-        let useMockEnv = ProcessInfo.processInfo.environment["USE_MOCK"] == "1"
-#if DEBUG
-        // Debugは既定でモック。環境変数でも強制可能。
-        return MockBattleService()
-#else
-        // Releaseでも USE_MOCK=1 があればモックを利用。
-        if useMockEnv {
+        if AppConfiguration.useMockServices {
             return MockBattleService()
         }
-        // TODO: 実装後に本番用サービスへ差し替え。
+
+        // NOTE: アクセストークンが無い状況向けのフォールバックとしてモックを返す。
+        // 実際の対戦時は `RemoteBattleService` を直接生成してください。
         return MockBattleService()
-#endif
     }
 }
-

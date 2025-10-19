@@ -1,3 +1,4 @@
+import CoreLocation
 import Foundation
 
 // MARK: - Domain Models
@@ -13,14 +14,42 @@ enum BattleResult: Equatable {
     case lose
 }
 
+struct BattlePositionUpdate {
+    let coordinate: CLLocationCoordinate2D
+    let altitude: CLLocationDistance?
+    let horizontalAccuracy: CLLocationAccuracy
+    let verticalAccuracy: CLLocationAccuracy?
+    let heading: CLLocationDirection
+    let headingAccuracy: CLLocationDirection?
+    let timestamp: Date
+}
+
+struct BattleAttackContext {
+    let position: BattlePositionUpdate
+    let attackId: UUID?
+    let chargeLevel: Int?
+}
+
 // MARK: - Service Boundary
 
 protocol BattleService {
     func join(sessionID: String) async throws -> BattleState
-    // 段階移行: 非ターン制
+    /// 非ターン制: サーバーへアクションを送信
     func send(_ action: BattleAction) async
     func states() async -> AsyncStream<BattleState>
-    // 互換API（暫定）: send後の最新状態を返す。将来削除想定。
+    /// レガシー互換: send 後に最新状態を返す（将来削除予定）
     func perform(action: BattleAction) async throws -> BattleState
     func end() async
+    /// 現在地・方位の同期
+    func sendPositionUpdate(_ update: BattlePositionUpdate) async
+    /// 攻撃トリガーを座標付きで送信
+    func triggerAttack(with context: BattleAttackContext) async
+}
+
+extension BattleService {
+    func sendPositionUpdate(_ update: BattlePositionUpdate) async {}
+
+    func triggerAttack(with context: BattleAttackContext) async {
+        await send(.attack)
+    }
 }
