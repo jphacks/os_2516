@@ -18,6 +18,10 @@ const (
 	EventCategorySystem EventCategory = "system"
 )
 
+const (
+	EventTypeFire EventType = "fire"
+)
+
 // Event は WebSocket を介してやり取りされるゲームイベントです。
 type Event struct {
 	ID        uuid.UUID
@@ -43,4 +47,5 @@ type GameStateSnapshot struct {
 type PlayerState struct {
 	Snapshot    PlayerSnapshot
 	Participant Participant
+	Position    *PlayerPosition
 }

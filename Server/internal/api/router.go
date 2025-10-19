@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"sort"
 	"strconv"
@@ -21,6 +22,7 @@ import (
 	domainbattlestage "server/internal/domain/battlestage"
 	"server/internal/domain/entities"
 	"server/internal/domain/game"
+	"server/internal/game/attack"
 	"server/internal/game/hpmp"
 	"server/internal/infrastructure/repository"
 	"server/internal/session"
@@ -56,7 +58,8 @@ func NewRouter(supabaseClient supabase.Client, db *sql.DB, cfg *config.Config) h
 
 	var sessionManager *session.Manager
 	if battleSessionRepo != nil {
-		sessionManager = session.NewManager(battleSessionRepo)
+		resolver := attack.NewDefaultResolver()
+		sessionManager = session.NewManager(battleSessionRepo, resolver)
 	}
 
 	var authMiddleware *auth.AuthMiddleware
@@ -508,6 +511,41 @@ func (h *Handler) websocket(w http.ResponseWriter, r *http.Request) {
 				log.Printf("websocket write error: %v", err)
 				return
 			}
+		case "position_update":
+			position, err := incoming.toPositionUpdate(sessionID, playerID)
+			if err != nil {
+				h.writeWSError(conn, "bad_request", err)
+				continue
+			}
+			stored, err := h.sessionManager.UpdatePosition(sessionID, playerID, position)
+			if err != nil {
+				h.writeWSError(conn, "position_failed", err)
+				continue
+			}
+			payload := newPositionPayload(stored)
+			if err := conn.WriteJSON(wsServerMessage{Kind: "position_ack", Position: payload}); err != nil {
+				log.Printf("websocket write error: %v", err)
+				return
+			}
+			h.broadcast(sessionID, wsServerMessage{Kind: "position", Position: payload}, playerID)
+		case "attack_triggered":
+			request, err := incoming.toAttackRequest(sessionID, playerID)
+			if err != nil {
+				h.writeWSError(conn, "bad_request", err)
+				continue
+			}
+			outcome, event, state, err := h.sessionManager.ResolveAttack(r.Context(), request)
+			if err != nil {
+				h.writeWSError(conn, "attack_failed", err)
+				continue
+			}
+			response := wsServerMessage{
+				Kind:         "event",
+				Event:        newEventPayload(*event),
+				State:        newStatePayload(state),
+				AttackResult: newAttackResultPayload(request, outcome, event),
+			}
+			h.broadcast(sessionID, response, uuid.Nil)
 		case "event":
 			event, err := incoming.toDomainEvent(sessionID, playerID)
 			if err != nil {
@@ -576,16 +614,17 @@ func (h *Handler) writeWSError(conn *websocket.Conn, code string, err error) {
 }
 
 type wsClientMessage struct {
-	Kind      string `json:"kind"`
-	SessionID string `json:"session_id,omitempty"`
-	TriggerID string `json:"trigger_id,omitempty"`
-	TargetID  string `json:"target_id,omitempty"`
-	TriggerHP *int   `json:"trigger_hp,omitempty"`
-	TargetHP  *int   `json:"target_hp,omitempty"`
-	TriggerMP *int   `json:"trigger_mp,omitempty"`
-	TargetMP  *int   `json:"target_mp,omitempty"`
-	Category  string `json:"category,omitempty"`
-	EventType string `json:"type,omitempty"`
+	Kind      string          `json:"kind"`
+	SessionID string          `json:"session_id,omitempty"`
+	TriggerID string          `json:"trigger_id,omitempty"`
+	TargetID  string          `json:"target_id,omitempty"`
+	TriggerHP *int            `json:"trigger_hp,omitempty"`
+	TargetHP  *int            `json:"target_hp,omitempty"`
+	TriggerMP *int            `json:"trigger_mp,omitempty"`
+	TargetMP  *int            `json:"target_mp,omitempty"`
+	Category  string          `json:"category,omitempty"`
+	EventType string          `json:"type,omitempty"`
+	Payload   json.RawMessage `json:"payload,omitempty"`
 }
 
 func (m wsClientMessage) toDomainEvent(sessionID uuid.UUID, defaultTrigger uuid.UUID) (game.Event, error) {
@@ -641,12 +680,142 @@ func (m wsClientMessage) toDomainEvent(sessionID uuid.UUID, defaultTrigger uuid.
 	return event, nil
 }
 
+func (m wsClientMessage) toPositionUpdate(sessionID, playerID uuid.UUID) (game.PlayerPosition, error) {
+	if len(m.Payload) == 0 {
+		return game.PlayerPosition{}, fmt.Errorf("payload is required for position_update")
+	}
+	var payload positionUpdatePayload
+	if err := json.Unmarshal(m.Payload, &payload); err != nil {
+		return game.PlayerPosition{}, fmt.Errorf("invalid position payload: %w", err)
+	}
+	return payload.toPlayerPosition(sessionID, playerID)
+}
+
+func (m wsClientMessage) toAttackRequest(sessionID, attackerID uuid.UUID) (game.AttackRequest, error) {
+	if len(m.Payload) == 0 {
+		return game.AttackRequest{}, fmt.Errorf("payload is required for attack_triggered")
+	}
+	var payload attackTriggerPayload
+	if err := json.Unmarshal(m.Payload, &payload); err != nil {
+		return game.AttackRequest{}, fmt.Errorf("invalid attack payload: %w", err)
+	}
+	position, err := payload.positionUpdatePayload.toPlayerPosition(sessionID, attackerID)
+	if err != nil {
+		return game.AttackRequest{}, err
+	}
+	targetIDStr := payload.TargetID
+	if targetIDStr == "" {
+		targetIDStr = m.TargetID
+	}
+	if targetIDStr == "" {
+		return game.AttackRequest{}, fmt.Errorf("target_id is required for attack")
+	}
+	targetID, err := uuid.Parse(targetIDStr)
+	if err != nil {
+		return game.AttackRequest{}, fmt.Errorf("invalid target_id: %w", err)
+	}
+	chargeLevel := 0
+	if payload.ChargeLevel != nil {
+		chargeLevel = *payload.ChargeLevel
+	}
+	attackID := uuid.New()
+	if payload.AttackID != "" {
+		parsed, parseErr := uuid.Parse(payload.AttackID)
+		if parseErr != nil {
+			return game.AttackRequest{}, fmt.Errorf("invalid attackId: %w", parseErr)
+		}
+		attackID = parsed
+	}
+	return game.AttackRequest{
+		SessionID:   sessionID,
+		AttackerID:  attackerID,
+		TargetID:    targetID,
+		AttackID:    attackID,
+		ChargeLevel: chargeLevel,
+		Position:    position,
+	}, nil
+}
+
+type positionUpdatePayload struct {
+	Timestamp *time.Time       `json:"timestamp,omitempty"`
+	Location  locationPayload  `json:"location"`
+	Heading   *float64         `json:"heading,omitempty"`
+	Accuracy  *accuracyPayload `json:"accuracy,omitempty"`
+}
+
+type attackTriggerPayload struct {
+	positionUpdatePayload
+	AttackID    string `json:"attackId,omitempty"`
+	ChargeLevel *int   `json:"chargeLevel,omitempty"`
+	TargetID    string `json:"targetId,omitempty"`
+}
+
+type locationPayload struct {
+	Latitude  float64  `json:"lat"`
+	Longitude float64  `json:"lon"`
+	Altitude  *float64 `json:"alt,omitempty"`
+}
+
+type accuracyPayload struct {
+	Horizontal float64  `json:"horizontal"`
+	Vertical   *float64 `json:"vertical,omitempty"`
+	Heading    *float64 `json:"heading,omitempty"`
+}
+
+func (p positionUpdatePayload) toPlayerPosition(sessionID, playerID uuid.UUID) (game.PlayerPosition, error) {
+	if p.Heading == nil {
+		return game.PlayerPosition{}, fmt.Errorf("heading is required")
+	}
+	recordedAt := time.Now().UTC()
+	if p.Timestamp != nil && !p.Timestamp.IsZero() {
+		recordedAt = p.Timestamp.UTC()
+	}
+	coordinate := game.Coordinate{
+		Latitude:  p.Location.Latitude,
+		Longitude: p.Location.Longitude,
+	}
+	if p.Location.Altitude != nil {
+		alt := *p.Location.Altitude
+		coordinate.Altitude = &alt
+	}
+	accuracy := game.PositionAccuracy{}
+	if p.Accuracy != nil {
+		accuracy.Horizontal = p.Accuracy.Horizontal
+		if p.Accuracy.Vertical != nil {
+			vert := *p.Accuracy.Vertical
+			accuracy.Vertical = &vert
+		}
+		if p.Accuracy.Heading != nil {
+			head := *p.Accuracy.Heading
+			accuracy.Heading = &head
+		}
+	}
+	return game.PlayerPosition{
+		SessionID:  sessionID,
+		PlayerID:   playerID,
+		Coordinate: coordinate,
+		Heading:    normalizeHeading(*p.Heading),
+		Accuracy:   accuracy,
+		RecordedAt: recordedAt,
+	}, nil
+}
+
+func normalizeHeading(value float64) float64 {
+	result := math.Mod(value, 360)
+	if result < 0 {
+		result += 360
+	}
+	return result
+}
+
 type wsServerMessage struct {
-	Kind  string          `json:"kind"`
-	Event *wsEventPayload `json:"event,omitempty"`
-	State *wsStatePayload `json:"state,omitempty"`
-	Error *wsErrorPayload `json:"error,omitempty"`
-	Info  string          `json:"info,omitempty"`
+	Kind         string                 `json:"kind"`
+	Event        *wsEventPayload        `json:"event,omitempty"`
+	State        *wsStatePayload        `json:"state,omitempty"`
+	Position     *wsPositionPayload     `json:"position,omitempty"`
+	AttackResult *wsAttackResultPayload `json:"attack_result,omitempty"`
+	Error        *wsErrorPayload        `json:"error,omitempty"`
+	Info         string                 `json:"info,omitempty"`
 }
 
 type wsErrorPayload struct {
@@ -665,6 +834,28 @@ type wsEventPayload struct {
 	Category   string    `json:"category"`
 	Type       string    `json:"type"`
 	OccurredAt time.Time `json:"occurred_at"`
+}
+
+type wsPositionPayload struct {
+	PlayerID  string           `json:"player_id"`
+	Timestamp time.Time        `json:"timestamp"`
+	Location  locationPayload  `json:"location"`
+	Heading   float64          `json:"heading"`
+	Accuracy  *accuracyPayload `json:"accuracy,omitempty"`
+}
+
+type wsAttackResultPayload struct {
+	AttackID    string    `json:"attack_id"`
+	AttackerID  string    `json:"attacker_id"`
+	TargetID    string    `json:"target_id"`
+	ChargeLevel int       `json:"charge_level"`
+	Hit         bool      `json:"hit"`
+	Damage      int       `json:"damage"`
+	TriggerHP   int       `json:"trigger_hp"`
+	TargetHP    int       `json:"target_hp"`
+	TriggerMP   *int      `json:"trigger_mp,omitempty"`
+	TargetMP    *int      `json:"target_mp,omitempty"`
+	OccurredAt  time.Time `json:"occurred_at"`
 }
 
 type wsStatePayload struct {
@@ -704,6 +895,64 @@ func newEventPayload(event game.Event) *wsEventPayload {
 	if event.TargetMP != nil {
 		value := *event.TargetMP
 		payload.TargetMP = &value
+	}
+	return payload
+}
+
+func newPositionPayload(position game.PlayerPosition) *wsPositionPayload {
+	payload := &wsPositionPayload{
+		PlayerID:  position.PlayerID.String(),
+		Timestamp: position.RecordedAt,
+		Location: locationPayload{
+			Latitude:  position.Coordinate.Latitude,
+			Longitude: position.Coordinate.Longitude,
+		},
+		Heading: normalizeHeading(position.Heading),
+	}
+	if position.Coordinate.Altitude != nil {
+		alt := *position.Coordinate.Altitude
+		payload.Location.Altitude = &alt
+	}
+	if position.Accuracy.Horizontal != 0 || position.Accuracy.Vertical != nil || position.Accuracy.Heading != nil {
+		acc := accuracyPayload{Horizontal: position.Accuracy.Horizontal}
+		if position.Accuracy.Vertical != nil {
+			vert := *position.Accuracy.Vertical
+			acc.Vertical = &vert
+		}
+		if position.Accuracy.Heading != nil {
+			head := *position.Accuracy.Heading
+			acc.Heading = &head
+		}
+		payload.Accuracy = &acc
+	}
+	return payload
+}
+
+func newAttackResultPayload(request game.AttackRequest, outcome game.AttackOutcome, event *game.Event) *wsAttackResultPayload {
+	payload := &wsAttackResultPayload{
+		AttackID:    request.AttackID.String(),
+		AttackerID:  request.AttackerID.String(),
+		TargetID:    request.TargetID.String(),
+		ChargeLevel: request.ChargeLevel,
+		Hit:         outcome.Hit,
+		Damage:      outcome.Damage,
+		OccurredAt:  request.Position.RecordedAt,
+	}
+	if payload.OccurredAt.IsZero() {
+		payload.OccurredAt = time.Now().UTC()
+	}
+	if event != nil {
+		payload.TriggerHP = event.TriggerHP
+		payload.TargetHP = event.TargetHP
+		payload.OccurredAt = event.CreatedAt
+		if event.TriggerMP != nil {
+			value := *event.TriggerMP
+			payload.TriggerMP = &value
+		}
+		if event.TargetMP != nil {
+			value := *event.TargetMP
+			payload.TargetMP = &value
+		}
 	}
 	return payload
 }

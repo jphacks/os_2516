@@ -1,0 +1,4 @@
+- Swift: Swift API Design Guidelines に従い UpperCamelCase 型・lowerCamelCase メンバ・4スペースインデント、`swiftformat` または Xcode の Re-indent を使用。
+- Go: 短く小文字のパッケージ名、コンストラクタは `NewThing` 命名、`gofmt`/`goimports` を実行。
+- iOS アーキテクチャは MVVM。ViewModel は `@MainActor` + `@Published` 状態公開、プロトコルで依存注入。
+- ドキュメントはリポジトリルートの `design.md`/`requirements.md`/`tasks.md` に集約。
