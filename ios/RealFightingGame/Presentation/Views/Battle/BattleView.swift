@@ -4,6 +4,10 @@ import SwiftUI
 struct BattleView: View {
     @StateObject private var viewModel: BattleViewModel
     @State private var presentedResult: BattleResult?
+    @State private var lastMana: Int = 0
+    @State private var manaGain: Int? = nil
+    @State private var fireballTrigger: Int = 0
+    @State private var showFireball: Bool = false
     #if canImport(UIKit)
     @Environment(\.openURL) private var openURL
     #endif
@@ -14,30 +18,21 @@ struct BattleView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            VStack(spacing: 8) {
-                hpRow(title: viewModel.state.selfStatus.displayName,
-                      hp: viewModel.state.selfStatus.hp,
-                      max: viewModel.state.selfStatus.maxHp,
-                      tint: .green)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text("\(viewModel.state.selfStatus.displayName) のHP"))
-                .accessibilityValue(Text("\(viewModel.state.selfStatus.hp) / \(viewModel.state.selfStatus.maxHp)"))
-                hpRow(title: viewModel.state.opponentStatus.displayName,
-                      hp: viewModel.state.opponentStatus.hp,
-                      max: viewModel.state.opponentStatus.maxHp,
-                      tint: .red)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text("\(viewModel.state.opponentStatus.displayName) のHP"))
-                .accessibilityValue(Text("\(viewModel.state.opponentStatus.hp) / \(viewModel.state.opponentStatus.maxHp)"))
+            // 上部: 相手のステータスのみ表示
+            HStack(alignment: .top) {
+                Spacer(minLength: 8)
+                PlayerStatusView(
+                    participant: viewModel.state.opponentStatus,
+                    accent: .red,
+                    alignment: .trailing
+                )
             }
             .padding(.horizontal)
 
-            gauges
+            // ゲージ群は削除（Guard/Special/MP 非表示）
 
             if viewModel.motionPermissionDenied {
                 permissionBanner
-            } else {
-                runningDebug
             }
 
             Spacer(minLength: 24)
@@ -55,19 +50,48 @@ struct BattleView: View {
 
             Spacer()
 
+            // 下部: 自分のステータス（MP回復時に+Xトーストとグロー）
+            HStack(alignment: .bottom) {
+                ZStack(alignment: .topLeading) {
+                    PlayerStatusView(
+                        participant: viewModel.state.selfStatus,
+                        accent: .green,
+                        alignment: .leading
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18)
+                            .stroke(.purple.opacity(manaGain != nil ? 0.35 : 0.0), lineWidth: 3)
+                            .animation(.easeOut(duration: 0.3), value: manaGain != nil)
+                    )
+                    if let gain = manaGain {
+                        Text("+\(gain)")
+                            .font(.caption).bold()
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .foregroundStyle(.purple)
+                            .background(.ultraThinMaterial, in: Capsule())
+                            .offset(y: -10)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                }
+                Spacer(minLength: 8)
+            }
+            .padding(.horizontal)
+
             actions
             .padding(.horizontal)
             .padding(.bottom)
         }
-        .overlay(alignment: .topTrailing) {
-            if viewModel.isRunning {
-                Text("走行中")
-                    .font(.caption).bold()
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(.thinMaterial, in: Capsule())
-                    .padding([.top, .trailing], 12)
-                    .accessibilityLabel(Text("走行中"))
+        .overlay(alignment: .trailing) {
+            RunStatusIndicator(isRunning: viewModel.isRunning,
+                               rate: viewModel.stepRatePerSec)
+                .padding(.trailing, 12)
+        }
+        .overlay(alignment: .center) {
+            if showFireball {
+                FireballOverlay(trigger: fireballTrigger) {
+                    showFireball = false
+                }
             }
         }
         .onChange(of: viewModelPhase) { phase in
@@ -76,8 +100,24 @@ struct BattleView: View {
         .onReceive(viewModel.$phase.dropFirst()) { phase in
             if case .result(let result) = phase { presentedResult = result }
         }
-        .onAppear { viewModel.onAppear() }
+        .onAppear {
+            viewModel.onAppear()
+            lastMana = viewModel.state.selfStatus.mana
+        }
         .onDisappear { viewModel.onDisappear() }
+        // MP増加のトースト表示制御
+        .onChange(of: viewModel.state.selfStatus.mana) { new in
+            let delta = new - lastMana
+            if delta > 0 {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    manaGain = delta
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                    withAnimation(.easeOut(duration: 0.2)) { manaGain = nil }
+                }
+            }
+            lastMana = new
+        }
         .sheet(item: $presentedResult) { result in
             BattleResultView(result: result, onRetry: {
                 presentedResult = nil
@@ -99,34 +139,12 @@ struct BattleView: View {
 
     @Environment(\.horizontalSizeClass) private var hSize
 
-    private var gauges: some View {
-        VStack(spacing: 8) {
-            LabeledContent("Guard") {
-                ProgressView(value: viewModel.state.runEnergy, total: 1)
-                    .tint(.blue)
-                    .frame(width: 160)
-            }
-            LabeledContent("Special") {
-                ProgressView(value: viewModel.state.chantProgress, total: 1)
-                    .tint(.orange)
-                    .frame(width: 160)
-            }
-            LabeledContent("MP") {
-                ProgressView(value: Double(viewModel.state.selfStatus.mana), total: Double(viewModel.state.selfStatus.maxMana))
-                    .tint(.purple)
-                    .frame(width: 160)
-            }
-        }
-        .padding(.horizontal)
-        .accessibilityElement(children: .contain)
-    }
-
     private var actions: some View {
         Group {
             if hSize == .regular {
-                HStack { attackButton; guardButton; specialButton }
+                HStack { attackButton }
             } else {
-                VStack { attackButton; HStack { guardButton; specialButton } }
+                VStack { attackButton }
             }
         }
     }
@@ -134,36 +152,21 @@ struct BattleView: View {
     private var attackButton: some View {
         Button {
             viewModel.attackTapped()
+            // ファイヤーボール発射アニメ
+            fireballTrigger += 1
+            showFireball = true
         } label: {
-            Text("Attack").font(.title3).bold()
+            Text("ファイヤーボール (−\(viewModel.attackManaCost))").font(.title3).bold()
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
         }
         .buttonStyle(.borderedProminent)
         .disabled(!(isInputEnabled && viewModel.state.selfStatus.mana >= viewModel.attackManaCost))
-        .accessibilityLabel(Text("攻撃"))
-        .accessibilityHint(Text("MPを消費して相手に攻撃します"))
+        .accessibilityLabel(Text("ファイヤーボール"))
+        .accessibilityHint(Text("MPを消費してファイヤーボールを放ちます"))
     }
 
-    private var guardButton: some View {
-        Button("Guard") { viewModel.guardTapped() }
-            .buttonStyle(.bordered)
-            .disabled(!isInputEnabled)
-            .frame(maxWidth: .infinity)
-            .accessibilityLabel(Text("ガード"))
-            .accessibilityHint(Text("未実装"))
-    }
-
-    private var specialButton: some View {
-        Button("Special") { viewModel.specialTapped() }
-            .buttonStyle(.bordered)
-            .disabled(!(isInputEnabled && isSpecialAvailable))
-            .frame(maxWidth: .infinity)
-            .accessibilityLabel(Text("必殺"))
-            .accessibilityHint(Text("チャージが満タンで使用可能"))
-    }
-
-    private var isSpecialAvailable: Bool { viewModel.state.chantProgress >= 1.0 }
+    // Guard/SpecialはUIから除去
 
     private func viewModelPhaseText() -> String? {
         switch viewModelPhase {
@@ -176,17 +179,7 @@ struct BattleView: View {
         }
     }
 
-    private func hpRow(title: String, hp: Int, max: Int, tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(title)
-                Spacer()
-                Text("HP: \(hp)/\(max)")
-            }
-            ProgressView(value: Double(hp), total: Double(max))
-                .tint(tint)
-        }
-    }
+    // hpRowはPlayerStatusViewへ統一しました
 
     // MARK: - Subviews
 
@@ -247,4 +240,202 @@ struct BattleView_Previews: PreviewProvider {
 
 extension BattleResult: Identifiable {
     var id: String { self == .win ? "win" : "lose" }
+}
+
+// MARK: - Run Status Indicator
+
+private struct RunStatusIndicator: View {
+    let isRunning: Bool
+    let rate: Double?
+    @State private var pulse = false
+
+    var body: some View {
+        ZStack {
+            if isRunning {
+                Circle().stroke(.green.opacity(0.35), lineWidth: 2)
+                    .frame(width: 34, height: 34)
+                    .scaleEffect(pulse ? 1.35 : 0.9)
+                    .opacity(pulse ? 0.0 : 1.0)
+                    .animation(.easeOut(duration: 0.9).repeatForever(autoreverses: false), value: pulse)
+                Circle().stroke(.green.opacity(0.25), lineWidth: 2)
+                    .frame(width: 26, height: 26)
+                    .scaleEffect(pulse ? 1.4 : 1.0)
+                    .opacity(pulse ? 0.0 : 1.0)
+                    .animation(.easeOut(duration: 1.2).repeatForever(autoreverses: false), value: pulse)
+            }
+            VStack(spacing: 6) {
+                Image(systemName: isRunning ? "figure.run.circle.fill" : "person.circle.fill")
+                    .font(.system(size: 28, weight: .semibold))
+                    .foregroundStyle(isRunning ? .green : .secondary)
+                if let rate {
+                    Text(String(format: "%.1f", rate))
+                        .font(.caption2).bold()
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel(Text("歩数レート"))
+                        .accessibilityValue(Text(String(format: "%.1f", rate)))
+                }
+            }
+        }
+        .onAppear { pulse = isRunning }
+        .onChange(of: isRunning) { running in pulse = running }
+    }
+}
+
+// MARK: - Fireball Overlay (projectile + hit)
+
+private struct FireballOverlay: View {
+    let trigger: Int
+    let onComplete: () -> Void
+    @State private var progress: CGFloat = 0
+    @State private var showHit = false
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                if !showHit {
+                    // Projectile（豪華版）
+                    let start = CGPoint(x: geo.size.width * 0.22, y: geo.size.height * 0.74)
+                    let end = CGPoint(x: geo.size.width * 0.78, y: geo.size.height * 0.2)
+                    let current = CGPoint(
+                        x: start.x + (end.x - start.x) * progress,
+                        y: start.y + (end.y - start.y) * progress
+                    )
+                    let dx = end.x - start.x
+                    let dy = end.y - start.y
+                    let angle = Angle(radians: Double(atan2(dy, dx)))
+
+                    ZStack {
+                        // Soft trail（2レイヤー）
+                        ForEach(0..<2) { i in
+                            let width = max(14, 90 * (1 - progress)) * (i == 0 ? 1.0 : 0.7)
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(LinearGradient(colors: [.yellow.opacity(0.7), .orange.opacity(0.5), .red.opacity(0.2), .clear], startPoint: .trailing, endPoint: .leading))
+                                .frame(width: width, height: 12)
+                                .rotationEffect(angle)
+                                .offset(x: -width * 0.45)
+                                .blur(radius: i == 0 ? 1.2 : 2.0)
+                                .blendMode(.plusLighter)
+                        }
+
+                        // After images（残光）
+                        ForEach(1..<4) { t in
+                            let bp = max(0, progress - CGFloat(t) * 0.08)
+                            let ghost = CGPoint(
+                                x: start.x + (end.x - start.x) * bp,
+                                y: start.y + (end.y - start.y) * bp
+                            )
+                            Circle()
+                                .fill(RadialGradient(colors: [.yellow, .orange.opacity(0.6), .clear], center: .center, startRadius: 0, endRadius: 16))
+                                .frame(width: 18 - CGFloat(t) * 2, height: 18 - CGFloat(t) * 2)
+                                .position(ghost)
+                                .opacity(0.5 - Double(t) * 0.12)
+                                .blendMode(.plusLighter)
+                        }
+
+                        // Core flame（ゆらぎ）
+                        let coreSize = 22 + sin(progress * .pi * 2) * 2
+                        Circle()
+                            .fill(AngularGradient(gradient: Gradient(colors: [.yellow, .orange, .red, .orange, .yellow]), center: .center))
+                            .frame(width: coreSize, height: coreSize)
+                            .shadow(color: .orange.opacity(0.8), radius: 10)
+                            .overlay(
+                                Circle()
+                                    .strokeBorder(.yellow.opacity(0.6), lineWidth: 1.2)
+                                    .blur(radius: 0.6)
+                            )
+                            .blendMode(.plusLighter)
+                            .position(current)
+
+                        // Sparks（簡易）
+                        ForEach(0..<12) { i in
+                            let theta = Double(i) / 12.0 * 2 * Double.pi
+                            let r = 6 + CGFloat(i % 3) * 3
+                            Circle()
+                                .fill(Color.yellow.opacity(0.9))
+                                .frame(width: 3, height: 3)
+                                .position(x: current.x + cos(theta) * r, y: current.y + sin(theta) * r)
+                                .opacity(0.6)
+                                .blendMode(.plusLighter)
+                        }
+                    }
+                    .transition(.opacity)
+                } else {
+                    // Hit burst + shockwave + flash
+                    ZStack {
+                        HitBurst()
+                            .frame(width: 110, height: 110)
+                            .transition(.scale.combined(with: .opacity))
+                        Shockwave()
+                            .frame(width: 140, height: 140)
+                    }
+                    .position(x: geo.size.width * 0.78, y: geo.size.height * 0.2)
+                    .overlay(
+                        Rectangle()
+                            .fill(Color.orange.opacity(0.2))
+                            .blendMode(.plusLighter)
+                            .ignoresSafeArea()
+                            .transition(.opacity)
+                    )
+                }
+            }
+            .onAppear { start() }
+            .id(trigger)
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func start() {
+        progress = 0
+        withAnimation(.easeOut(duration: 0.35)) {
+            progress = 1
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.36) {
+            showHit = true
+            withAnimation(.easeOut(duration: 0.15)) {}
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                onComplete()
+                showHit = false
+            }
+        }
+    }
+}
+
+private struct HitBurst: View {
+    @State private var scale: CGFloat = 0.6
+    @State private var opacity: Double = 1
+    var body: some View {
+        ZStack {
+            ForEach(0..<6) { i in
+                Circle()
+                    .fill([Color.yellow, .orange, .red][i % 3].opacity(0.9))
+                    .frame(width: 8, height: 8)
+                    .offset(x: 0, y: -20)
+                    .rotationEffect(.degrees(Double(i) / 6.0 * 360))
+            }
+            Circle()
+                .strokeBorder(Color.orange.opacity(0.8), lineWidth: 2)
+                .background(Circle().fill(Color.orange.opacity(0.2)))
+        }
+        .scaleEffect(scale)
+        .opacity(opacity)
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.15)) { scale = 1.2; opacity = 1 }
+            withAnimation(.easeOut(duration: 0.15).delay(0.1)) { scale = 1.35; opacity = 0 }
+        }
+    }
+}
+
+private struct Shockwave: View {
+    @State private var scale: CGFloat = 0.6
+    @State private var opacity: Double = 0.8
+    var body: some View {
+        Circle()
+            .strokeBorder(LinearGradient(colors: [.yellow, .orange.opacity(0.6), .clear], startPoint: .center, endPoint: .top), lineWidth: 3)
+            .shadow(color: .orange.opacity(0.6), radius: 6)
+            .scaleEffect(scale)
+            .opacity(opacity)
+            .onAppear {
+                withAnimation(.easeOut(duration: 0.25)) { scale = 1.4; opacity = 0 }
+            }
+    }
 }

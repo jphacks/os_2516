@@ -14,7 +14,7 @@ struct PlayerStatusView: View {
                              value: Double(participant.hp),
                              total: Double(participant.maxHp),
                              tint: accent)
-                labeledMeter(title: "魔素",
+                labeledMeter(title: "MP",
                              value: Double(participant.mana),
                              total: Double(participant.maxMana),
                              tint: .purple)
@@ -23,6 +23,9 @@ struct PlayerStatusView: View {
         .padding(16)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
         .frame(maxWidth: 280, alignment: alignment == .leading ? .leading : .trailing)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("\(participant.displayName) のステータス"))
+        .accessibilityValue(Text("HP \(participant.hp)/\(participant.maxHp)、MP \(participant.mana)/\(participant.maxMana)"))
     }
 
     private func labeledMeter(title: String,
@@ -35,6 +38,7 @@ struct PlayerStatusView: View {
                 .foregroundStyle(.secondary)
             ProgressView(value: value, total: total)
                 .tint(tint)
+                .animation(.spring(response: 0.35, dampingFraction: 0.8), value: value)
         }
         .frame(width: 110)
     }

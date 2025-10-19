@@ -29,7 +29,7 @@ final class BattleViewModel: ObservableObject {
     @Published private(set) var stepRatePerSec: Double? = nil
     @Published private(set) var motionPermissionDenied: Bool = false
     private let manaRegenPerSecond: Int = 3
-    let attackManaCost: Int = 5
+    let attackManaCost: Int = 30
 
     init(sessionID: String,
          service: BattleService,
@@ -131,7 +131,10 @@ final class BattleViewModel: ObservableObject {
 
     func attackTapped() {
         guard case .inputting = phase, state.selfStatus.mana >= attackManaCost else { return }
-        haptics.attackTap()
+        // Attack時の振動をSpecialと同一に変更
+        haptics.specialCast()
+        // ファイヤーボールSEを再生
+        audio.playMagic(fileName: "fireball_cast.mp3")
         // 楽観的更新: ローカルで即時にMPを消費しUIへ反映
         decreaseMana(by: attackManaCost)
         Task { [service] in await service.send(.attack) }

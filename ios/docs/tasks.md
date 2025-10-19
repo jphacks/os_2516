@@ -40,26 +40,29 @@
 
 ### 3) 演出（音・振動）
 - [ ] ハプティクス微調整（任意）: `CoreHapticsService`/`UIKitHapticsService`
-  - Attack/Hit/Special/Win/Lose の強弱・種類を調整。
+  - Attack/Hit/Special/Win/Lose の強弱・種類を調整。（基礎実装はあり）
 - [ ] 効果音レイヤ追加（新規）
-  - 追加ファイル: 
+  - [x] 追加ファイル: 
     - `RealFightingGame/Infrastructure/Audio/AudioService.swift`
     - `RealFightingGame/Infrastructure/Audio/AVAudioService.swift`
     - `RealFightingGame/Infrastructure/Audio/NoopAudioService.swift`
     - `RealFightingGame/DI/ServiceFactory+Audio.swift`
-  - 音源: `RealFightingGame/Resources/Sounds/{hit.mp3, win.mp3, lose.mp3}`
-  - Xcode設定: 上記音源を「Copy Bundle Resources」に登録。
+  - [x] 音源: `RealFightingGame/Resources/Sounds/{hit.mp3, win.mp3, lose.mp3}`
+  - [x] Xcode設定: 上記音源を「Copy Bundle Resources」に登録（pbxproj反映済み）
 - [ ] 呼び出し箇所: `BattleViewModel`
-  - `attackTapped()`／`specialTapped()`／`result` 遷移時に `audio.play(...)` を呼ぶ。
+  - [x] `attackTapped()` で ファイヤーボールSE を再生（`audio.playMagic("fireball_cast.mp3")`）
+  - [ ] `specialTapped()` で `audio.playMagic(...)` を呼ぶ（未）
+  - [x] `result` 遷移時に `audio.play(.win/.lose)` を呼ぶ（`RealFightingGame/Presentation/ViewModels/BattleViewModel.swift:98,104`）
+  - [x] 被弾時に `audio.play(.hit)` を呼ぶ（`RealFightingGame/Presentation/ViewModels/BattleViewModel.swift:87`）
 
 受け入れ基準
 - Attack/Special/Win/Lose のタイミングで重なりなく音が鳴り、ハプティクスと違和感がない。
 
 ### 4) Battle画面の改善
-- [ ] ステータス表示の統一: `PlayerStatusView` を活用し、HP/MPの視認性向上。
-- [ ] ボタンUI: Attackにコスト表示、Special準備完了時の強調（色/バウンド等）。
-- [ ] ガード可視化: 残り有効時間を簡易ゲージで表現（`runEnergy` を転用）。
-- [ ] アクセシビリティ: VoiceOverラベル/値、ヒント整備。Dynamic Type 最低限対応。
+- [x] ステータス表示の統一: `PlayerStatusView` を活用し、HP/MPの視認性向上。
+- [x] ボタンUI: Attackにコスト表示、Special準備完了時の強調（色/スケール）。
+- [x] ガード可視化: 残り有効時間を簡易ゲージで表現（`runEnergy` を転用）。
+- [x] アクセシビリティ: ステータスのVoiceOverラベル/値を追加（最低限）。
 
 受け入れ基準
 - 主要コンポーネントが一目で状態把握可能、誤操作が減る。
