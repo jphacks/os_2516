@@ -875,6 +875,7 @@ type wsPlayerState struct {
 	MP             int     `json:"mp"`
 	Stance         *string `json:"stance,omitempty"`
 	LastPositionID *string `json:"last_position_id,omitempty"`
+	Position       *wsPositionPayload `json:"position,omitempty"`
 }
 
 func newEventPayload(event game.Event) *wsEventPayload {
@@ -973,6 +974,11 @@ func newStatePayload(snapshot game.GameStateSnapshot) *wsStatePayload {
 		if state.Snapshot.LastPositionID != nil {
 			value := state.Snapshot.LastPositionID.String()
 			player.LastPositionID = &value
+		}
+		if state.Position != nil {
+			// include latest known position snapshot for the player
+			pos := newPositionPayload(*state.Position)
+			player.Position = pos
 		}
 		players = append(players, player)
 	}
