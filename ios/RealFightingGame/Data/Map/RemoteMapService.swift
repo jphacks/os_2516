@@ -40,7 +40,7 @@ struct RemoteMapService: MapService {
         let spots = payload.spots.map {
             MapPin(title: $0.name,
                    coordinate: CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude),
-                   sourceID: $0.id)
+                   stageID: $0.id)
         }
 
         let userPin = payload.playerLocation.map {

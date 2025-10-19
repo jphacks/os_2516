@@ -160,15 +160,22 @@ final class MapViewModel: ObservableObject {
 }
 
 struct MapPin: Identifiable, Hashable {
-    let id = UUID()
+    let id: UUID
     let title: String
     let coordinate: CLLocationCoordinate2D
-    let sourceID: String?
+    let stageID: String?
+    let distanceMeters: Double?
 
-    init(title: String, coordinate: CLLocationCoordinate2D, sourceID: String? = nil) {
+    init(id: UUID = UUID(),
+         title: String,
+         coordinate: CLLocationCoordinate2D,
+         stageID: String? = nil,
+         distanceMeters: Double? = nil) {
+        self.id = id
         self.title = title
         self.coordinate = coordinate
-        self.sourceID = sourceID
+        self.stageID = stageID
+        self.distanceMeters = distanceMeters
     }
 
     static func == (lhs: MapPin, rhs: MapPin) -> Bool { lhs.id == rhs.id }

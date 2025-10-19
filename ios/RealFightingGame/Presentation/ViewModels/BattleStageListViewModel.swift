@@ -81,8 +81,8 @@ final class BattleStageListViewModel: ObservableObject {
                 }
 
                 let stages = result.spots.compactMap { pin -> Stage? in
-                    let identifier = pin.sourceID ?? pin.title.nonEmpty ?? UUID().uuidString
-                    let distance = userCoordinate.map { coord in
+                    let identifier = pin.stageID ?? pin.title.nonEmpty ?? UUID().uuidString
+                    let distance = pin.distanceMeters ?? userCoordinate.map { coord in
                         CLLocation(latitude: coord.latitude, longitude: coord.longitude)
                             .distance(from: CLLocation(latitude: pin.coordinate.latitude, longitude: pin.coordinate.longitude))
                     }
