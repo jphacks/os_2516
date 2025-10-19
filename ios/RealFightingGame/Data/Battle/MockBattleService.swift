@@ -10,14 +10,14 @@ actor MockBattleService: BattleService {
         public var enemyDamageRange: ClosedRange<Int> = 10...16
         public var specialDamage: Int = 30
         public var specialChargePerTurn: Double = 0.5
-        public var attackManaCost: Int = 5
+        public var attackManaCost: Int = 30
 
         public init(latencyMs: UInt64 = 300,
                     playerDamageRange: ClosedRange<Int> = 18...22,
                     enemyDamageRange: ClosedRange<Int> = 10...16,
                     specialDamage: Int = 30,
                     specialChargePerTurn: Double = 0.5,
-                    attackManaCost: Int = 5) {
+                    attackManaCost: Int = 30) {
             self.latencyMs = latencyMs
             self.playerDamageRange = playerDamageRange
             self.enemyDamageRange = enemyDamageRange
