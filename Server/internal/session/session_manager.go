@@ -11,6 +11,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"server/internal/domain/game"
+	"server/internal/game/attack"
 )
 
 // ErrSessionNotFound は要求されたセッションが存在しない場合に返されます。
@@ -18,6 +19,11 @@ var ErrSessionNotFound = errors.New("battle session not found")
 
 // ErrPlayerNotInSession はプレイヤーがセッションに所属していない場合に返されます。
 var ErrPlayerNotInSession = errors.New("player not part of session")
+
+const (
+	baseMPCost   = 10
+	chargeMPCost = 5
+)
 
 // Repository はセッションデータを取得・更新するための抽象化です。
 type Repository interface {
@@ -41,8 +47,9 @@ type NewParticipant struct {
 
 // SessionPlayer はセッションに参加するプレイヤー状態です。
 type SessionPlayer struct {
-	Participant game.Participant
-	Snapshot    game.PlayerSnapshot
+	Participant  game.Participant
+	Snapshot     game.PlayerSnapshot
+	LastPosition *game.PlayerPosition
 }
 
 // BattleSession はゲームセッションのインメモリ表現です。
@@ -60,9 +67,15 @@ func (bs *BattleSession) Snapshot() game.GameStateSnapshot {
 
 	players := make(map[uuid.UUID]game.PlayerState, len(bs.Players))
 	for id, player := range bs.Players {
+		var position *game.PlayerPosition
+		if player.LastPosition != nil {
+			posCopy := player.LastPosition.Clone()
+			position = &posCopy
+		}
 		players[id] = game.PlayerState{
 			Snapshot:    player.Snapshot.Clone(),
 			Participant: player.Participant,
+			Position:    position,
 		}
 	}
 
@@ -74,16 +87,18 @@ func (bs *BattleSession) Snapshot() game.GameStateSnapshot {
 
 // Manager はゲームセッションのライフサイクルを統括します。
 type Manager struct {
-	repo     Repository
-	sessions map[uuid.UUID]*BattleSession
-	mu       sync.RWMutex
+	repo           Repository
+	sessions       map[uuid.UUID]*BattleSession
+	mu             sync.RWMutex
+	attackResolver *attack.Resolver
 }
 
 // NewManager は新しい Manager を生成します。
-func NewManager(repo Repository) *Manager {
+func NewManager(repo Repository, resolver *attack.Resolver) *Manager {
 	return &Manager{
-		repo:     repo,
-		sessions: make(map[uuid.UUID]*BattleSession),
+		repo:           repo,
+		sessions:       make(map[uuid.UUID]*BattleSession),
+		attackResolver: resolver,
 	}
 }
 
@@ -111,6 +126,38 @@ func (m *Manager) AttachConnection(ctx context.Context, sessionID, playerID uuid
 	player.Snapshot.UpdatedAt = time.Now()
 
 	return bs, nil
+}
+
+// SetAttackResolver は攻撃判定ロジックを差し替えます。
+func (m *Manager) SetAttackResolver(resolver *attack.Resolver) {
+	m.attackResolver = resolver
+}
+
+// UpdatePosition はプレイヤーの最新位置を更新します。
+func (m *Manager) UpdatePosition(sessionID, playerID uuid.UUID, position game.PlayerPosition) (game.PlayerPosition, error) {
+	bs, err := m.getExistingSession(sessionID)
+	if err != nil {
+		return game.PlayerPosition{}, err
+	}
+
+	if position.RecordedAt.IsZero() {
+		position.RecordedAt = time.Now()
+	}
+	position.SessionID = sessionID
+	position.PlayerID = playerID
+
+	bs.mu.Lock()
+	defer bs.mu.Unlock()
+
+	player, ok := bs.Players[playerID]
+	if !ok {
+		return game.PlayerPosition{}, ErrPlayerNotInSession
+	}
+
+	copy := position.Clone()
+	player.LastPosition = &copy
+
+	return copy, nil
 }
 
 // DetachConnection はプレイヤー接続を解除します。
@@ -149,6 +196,97 @@ func (m *Manager) RemoveSession(sessionID uuid.UUID) {
 		}
 		delete(bs.Connections, id)
 	}
+}
+
+// ResolveAttack は攻撃リクエストを評価し、結果に応じたイベントを生成します。
+func (m *Manager) ResolveAttack(ctx context.Context, request game.AttackRequest) (game.AttackOutcome, *game.Event, game.GameStateSnapshot, error) {
+	if m.attackResolver == nil {
+		return game.AttackOutcome{Request: request}, nil, game.GameStateSnapshot{}, fmt.Errorf("attack resolver not configured")
+	}
+
+	if request.AttackID == uuid.Nil {
+		request.AttackID = uuid.New()
+	}
+	position := request.Position.Clone()
+	if position.RecordedAt.IsZero() {
+		position.RecordedAt = time.Now()
+	}
+	position.SessionID = request.SessionID
+	position.PlayerID = request.AttackerID
+	request.Position = position
+
+	bs, err := m.getExistingSession(request.SessionID)
+	if err != nil {
+		return game.AttackOutcome{Request: request}, nil, game.GameStateSnapshot{}, err
+	}
+
+	bs.mu.Lock()
+	attacker, ok := bs.Players[request.AttackerID]
+	if !ok {
+		bs.mu.Unlock()
+		return game.AttackOutcome{Request: request}, nil, game.GameStateSnapshot{}, ErrPlayerNotInSession
+	}
+	target, ok := bs.Players[request.TargetID]
+	if !ok {
+		bs.mu.Unlock()
+		return game.AttackOutcome{Request: request}, nil, game.GameStateSnapshot{}, ErrPlayerNotInSession
+	}
+
+	attackerPos := position.Clone()
+	attacker.LastPosition = &attackerPos
+
+	attackerSnapshot := attacker.Snapshot.Clone()
+	targetSnapshot := target.Snapshot.Clone()
+
+	var targetPosition *game.PlayerPosition
+	if target.LastPosition != nil {
+		copy := target.LastPosition.Clone()
+		targetPosition = &copy
+	}
+	bs.mu.Unlock()
+
+	outcome, err := m.attackResolver.Resolve(request, position, targetPosition)
+	if err != nil {
+		return outcome, nil, game.GameStateSnapshot{}, err
+	}
+
+	event := game.Event{
+		ID:        uuid.New(),
+		SessionID: request.SessionID,
+		TriggerID: request.AttackerID,
+		TargetID:  request.TargetID,
+		TriggerHP: attackerSnapshot.HP,
+		TargetHP:  targetSnapshot.HP,
+		Category:  game.EventCategoryAttack,
+		Type:      game.EventTypeFire,
+		CreatedAt: position.RecordedAt,
+	}
+
+	mpCost := computeMPCost(request.ChargeLevel)
+	if mpCost > 0 {
+		triggerMP := attackerSnapshot.MP - mpCost
+		if triggerMP < 0 {
+			triggerMP = 0
+		}
+		if triggerMP != attackerSnapshot.MP {
+			event.TriggerMP = &triggerMP
+		}
+	}
+
+	if outcome.Hit {
+		newHP := targetSnapshot.HP - outcome.Damage
+		if newHP < 0 {
+			newHP = 0
+		}
+		event.TargetHP = newHP
+	}
+
+	state, err := m.ApplyEvent(ctx, event)
+	if err != nil {
+		return outcome, nil, game.GameStateSnapshot{}, err
+	}
+
+	return outcome, &event, state, nil
 }
 
 // ApplyEvent はゲームイベントを適用しDBへ永続化します。
@@ -341,4 +479,11 @@ func (m *Manager) loadBattleSession(ctx context.Context, sessionID uuid.UUID) (*
 		Players:     players,
 		Connections: make(map[uuid.UUID]*websocket.Conn),
 	}, nil
+}
+
+func computeMPCost(chargeLevel int) int {
+	if chargeLevel < 0 {
+		chargeLevel = 0
+	}
+	return baseMPCost + (chargeLevel * chargeMPCost)
 }
