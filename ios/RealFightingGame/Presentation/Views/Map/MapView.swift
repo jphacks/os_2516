@@ -4,14 +4,17 @@ import SwiftUI
 @available(iOS 17.0, *)
 struct MapView: View {
     @StateObject private var viewModel: MapViewModel
+    @State private var cameraPosition: MapCameraPosition
 
     init(service: MapService, locationService: LocationService? = nil) {
-        _viewModel = StateObject(wrappedValue: MapViewModel(service: service, locationService: locationService))
+        let vm = MapViewModel(service: service, locationService: locationService)
+        _viewModel = StateObject(wrappedValue: vm)
+        _cameraPosition = State(initialValue: .region(vm.region))
     }
 
     var body: some View {
         ZStack {
-            Map(position: cameraPositionBinding, interactionModes: [.all]) {
+            Map(position: $cameraPosition, interactionModes: [.all]) {
                 if let userPin = viewModel.userLocationPin {
                     Annotation("現在地", coordinate: userPin.coordinate, anchor: .center) {
                         userLocationView
@@ -25,6 +28,9 @@ struct MapView: View {
             .mapStyle(.standard)
             .ignoresSafeArea(edges: .bottom)
             .simultaneousGesture(DragGesture().onChanged { _ in viewModel.userDidPanMap() })
+            .onMapCameraChange { context in
+                viewModel.handleRegionChangeFromMap(context.region)
+            }
             .onAppear {
                 if case .idle = viewModel.pinsState {
                     viewModel.loadPins(force: true)
@@ -42,6 +48,9 @@ struct MapView: View {
             recenterButton
                 .padding(.trailing, 16)
                 .padding(.bottom, 24)
+        }
+        .onReceive(viewModel.$region.dropFirst()) { region in
+            cameraPosition = .region(region)
         }
     }
 
@@ -89,17 +98,6 @@ struct MapView: View {
         }
         .accessibilityLabel("現在地へ移動")
     }
-
-    private var cameraPositionBinding: Binding<MapCameraPosition> {
-        Binding<MapCameraPosition>(
-            get: { MapCameraPosition.region(viewModel.region) },
-            set: { newValue in
-                if let updatedRegion = newValue.region {
-                    viewModel.handleRegionChangeFromMap(updatedRegion)
-                }
-            }
-        )
-    }
 }
 
 #if DEBUG
@@ -118,7 +116,10 @@ private extension MapView {
     var overlayStateView: some View {
         switch viewModel.pinsState {
         case .loading:
-            EmptyView()
+            ProgressView()
+                .progressViewStyle(.circular)
+                .padding(16)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
         case .failure:
             VStack(spacing: 8) {
                 Text("読み込みに失敗しました")

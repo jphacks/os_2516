@@ -27,13 +27,25 @@ final class CoreHapticsService: HapticsService {
     func prepare() {
         #if canImport(CoreHaptics)
         guard supported else { return }
-        try? engine?.start()
+        if let engine {
+            do {
+                try engine.start()
+            } catch {
+                // no-op
+            }
+        }
         #endif
     }
 
     func stop() {
         #if canImport(CoreHaptics)
-        try? engine?.stop(completionHandler: nil)
+        if let engine {
+            do {
+                try engine.stop(completionHandler: nil)
+            } catch {
+                // no-op
+            }
+        }
         #endif
     }
 
@@ -79,4 +91,3 @@ final class CoreHapticsService: HapticsService {
         #endif
     }
 }
-

@@ -4,6 +4,7 @@ import MapKit
 final class AppContainer: ObservableObject {
     let mapService: MapService
     let locationService: LocationService
+    let motionService: MotionService
     let apiBaseURL: URL
     let useMock: Bool
 
@@ -21,9 +22,17 @@ final class AppContainer: ObservableObject {
                 ],
                 updateIntervalNanoseconds: 2_000_000_000
             )
+            self.motionService = MockMotionService(
+                runningPattern: [false, true, true, true, false],
+                intervalNanoseconds: 1_000_000_000,
+                runningStepRate: 2.8,
+                walkingStepRate: 1.2,
+                repeats: true
+            )
         } else {
-            self.mapService = RemoteMapService(baseURL: AppConfiguration.apiBaseURL)
+            self.mapService = RemoteMapService(baseURL: apiBaseURL)
             self.locationService = CoreLocationService()
+            self.motionService = CoreMotionMotionService()
         }
     }
 
