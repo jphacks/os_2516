@@ -65,6 +65,8 @@ actor RemoteBattleService: BattleService {
 
     private var webSocketTask: URLSessionWebSocketTask?
     private var receiveTask: Task<Void, Never>?
+    private var reconnectionTask: Task<Void, Never>?
+    private var reconnectDelayNanoseconds: UInt64 = RemoteBattleService.initialReconnectDelay
 
     private let attackDamage = 12
     private let specialDamage = 26
@@ -81,6 +83,8 @@ actor RemoteBattleService: BattleService {
 
     func join(sessionID stageId: String) async throws -> BattleState {
         log("join requested for stageId=\(stageId)")
+        cancelScheduledReconnect()
+        reconnectDelayNanoseconds = RemoteBattleService.initialReconnectDelay
         let response = try await createSession(stageId: stageId)
         activeSessionId = response.sessionId
         selfPlayerId = response.playerId
@@ -200,7 +204,7 @@ actor RemoteBattleService: BattleService {
                 log("sent end message")
             }
         }
-        await closeSocket()
+        await closeSocket(shouldReconnect: false)
         streamContinuation?.finish()
         streamContinuation = nil
         streamCache = nil
@@ -208,6 +212,7 @@ actor RemoteBattleService: BattleService {
         activeSessionId = nil
         selfPlayerId = nil
         opponentPlayerId = nil
+        cancelScheduledReconnect()
     }
 
     // MARK: - Private
@@ -452,12 +457,17 @@ actor RemoteBattleService: BattleService {
         log("event applied selfHp=\(selfStatus.hp) opponentHp=\(opponentStatus.hp)")
     }
 
-    private func closeSocket() async {
+    private func closeSocket(shouldReconnect: Bool = true) async {
         receiveTask?.cancel()
         receiveTask = nil
         webSocketTask?.cancel(with: .normalClosure, reason: nil)
         webSocketTask = nil
         log("websocket closed")
+        if shouldReconnect {
+            scheduleReconnect()
+        } else {
+            cancelScheduledReconnect()
+        }
     }
 
     private func httpStatusCode(_ response: URLResponse) -> Int {
@@ -467,6 +477,52 @@ actor RemoteBattleService: BattleService {
     nonisolated private func log(_ message: String) {
         print("[RemoteBattleService] \(message)")
     }
+
+    private func scheduleReconnect() {
+        guard activeSessionId != nil else {
+            log("scheduleReconnect skipped: no active session")
+            return
+        }
+        guard reconnectionTask == nil else {
+            log("scheduleReconnect skipped: task already scheduled")
+            return
+        }
+
+        let delay = reconnectDelayNanoseconds
+        log("scheduleReconnect scheduled in \(Double(delay) / 1_000_000_000)s")
+        reconnectionTask = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: delay)
+            } catch {
+                return
+            }
+            await self?.attemptReconnect()
+        }
+    }
+
+    private func cancelScheduledReconnect() {
+        reconnectionTask?.cancel()
+        reconnectionTask = nil
+    }
+
+    private func attemptReconnect() async {
+        reconnectionTask = nil
+        guard webSocketTask == nil else {
+            log("attemptReconnect skipped: socket already exists")
+            reconnectDelayNanoseconds = RemoteBattleService.initialReconnectDelay
+            return
+        }
+
+        do {
+            try await ensureSocket()
+            log("attemptReconnect succeeded")
+            reconnectDelayNanoseconds = RemoteBattleService.initialReconnectDelay
+        } catch {
+            log("attemptReconnect failed: \(error)")
+            reconnectDelayNanoseconds = min(reconnectDelayNanoseconds * 2, RemoteBattleService.maxReconnectDelay)
+            scheduleReconnect()
+        }
+    }
 }
 
 private extension URL {
@@ -475,6 +531,11 @@ private extension URL {
         components?.scheme = scheme
         return components?.url ?? self
     }
+}
+
+extension RemoteBattleService {
+    private static let initialReconnectDelay: UInt64 = 1_000_000_000
+    private static let maxReconnectDelay: UInt64 = 8_000_000_000
 }
 
 private extension BattleParticipant {
