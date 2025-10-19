@@ -88,27 +88,10 @@ final class NearbyInteractionService: NSObject, ObservableObject {
     }
 
     private func refreshAuthorization() {
-        if #available(iOS 15.0, *) {
-            switch NISession.authorizationStatus {
-            case .notDetermined:
-                status = peerToken == nil ? .waitingForPeer : .idle
-            case .restricted, .denied:
-                status = .unauthorized
-            case .authorized:
-                if peerToken == nil {
-                    status = .waitingForPeer
-                } else {
-                    status = .idle
-                }
-            @unknown default:
-                status = .unauthorized
-            }
-        } else {
-            if peerToken == nil {
-                status = .waitingForPeer
-            } else {
-                status = .idle
-            }
+        if peerToken == nil {
+            status = .waitingForPeer
+        } else if status != .unauthorized {
+            status = .idle
         }
     }
 
@@ -172,7 +155,7 @@ extension NearbyInteractionService: NISessionDelegate {
         let azimuth = object.direction.map { atan2(Double($0.x), Double($0.z)) }
         let elevation = object.direction.map { asin(Double($0.y) / max(Double(simd_length($0)), .leastNonzeroMagnitude)) }
         reading = Reading(
-            distanceMeters: object.distance,
+            distanceMeters: object.distance.map(Double.init),
             azimuthRadians: azimuth,
             elevationRadians: elevation
         )
@@ -199,14 +182,12 @@ extension NearbyInteractionService: NISessionDelegate {
     func session(_ session: NISession, didRemove nearbyObjects: [NINearbyObject], reason: NINearbyObject.RemovalReason) {
         logger.info("Nearby Interaction objects removed with reason=\(String(describing: reason), privacy: .public)")
         switch reason {
-        case .peerEnded, .peerCancelled:
+        case .peerEnded:
             status = .waitingForPeer
         case .timeout:
             status = .suspended
-        case .unknown:
+        default:
             status = .invalidated("通信が不安定です")
-        @unknown default:
-            status = .invalidated("不明なエラーが発生しました")
         }
         reading = nil
     }

@@ -688,7 +688,7 @@ actor RemoteBattleService: BattleService {
             guard let self else { return }
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
-                if self.webSocketTask == nil {
+                if await self.webSocketTask == nil {
                     do {
                         try await self.ensureSocket()
                     } catch {
