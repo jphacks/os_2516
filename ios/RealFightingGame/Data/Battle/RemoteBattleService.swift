@@ -18,6 +18,7 @@ actor RemoteBattleService: BattleService {
             let mp: Int
             let stance: String?
             let lastPositionId: String?
+            let position: WSPositionPayload?
         }
 
         let sessionId: String
@@ -554,6 +555,15 @@ actor RemoteBattleService: BattleService {
             }
         }
         let opponent = state.players.first { $0.playerId == opponentPlayerId }
+
+        // ingest initial positions from state payload if present
+        for p in state.players {
+            if let pos = p.position {
+                latestPositions[p.playerId] = pos
+            }
+        }
+        // attempt to update telemetry immediately if possible
+        updateTelemetryFromPositions()
 
         let selfStatus = BattleParticipant(
             displayName: selfPlayer?.role.capitalized ?? "You",
