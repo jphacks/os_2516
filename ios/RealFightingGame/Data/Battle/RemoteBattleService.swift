@@ -194,6 +194,16 @@ actor RemoteBattleService: BattleService {
         return state
     }
 
+    /// Public accessor to observe whether an opponent player id has already been observed by the service.
+    /// Used by UI code to decide whether to wait for another participant.
+    func knownOpponentId() async -> String? {
+        return opponentPlayerId
+    }
+
+    func currentSessionId() async -> String? {
+        return activeSessionId
+    }
+
     func send(_ action: BattleAction) async {
         guard let sessionId = activeSessionId,
               let playerId = selfPlayerId,
