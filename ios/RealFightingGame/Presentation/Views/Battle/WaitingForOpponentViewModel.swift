@@ -27,7 +27,13 @@ final class WaitingForOpponentViewModel: ObservableObject {
                 }
                 if s.opponentStatus.displayName != "Opponent" || s.opponentStatus.hp != 100 || s.opponentStatus.mana != 100 {
                     // heuristics: some non-default data implies an opponent is present
-                    self.isReady = true
+                    // Post a notification with the actual session id from the service (the service may have replaced the initial stage id)
+                    if let realSid = await service.currentSessionId() {
+                        NotificationCenter.default.post(name: .waitingDidResolve, object: realSid)
+                    } else {
+                        // fallback: mark ready so the view can react if session id isn't available
+                        self.isReady = true
+                    }
                     break
                 }
             }

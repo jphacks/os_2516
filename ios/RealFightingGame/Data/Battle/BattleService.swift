@@ -44,6 +44,11 @@ protocol BattleService {
     func sendPositionUpdate(_ update: BattlePositionUpdate) async
     /// 攻撃トリガーを座標付きで送信
     func triggerAttack(with context: BattleAttackContext) async
+    // optional: return the current active session id if available
+    func currentSessionId() async -> String?
+
+    // optional: return a known opponent id if available
+    func knownOpponentId() async -> String?
 }
 
 extension BattleService {
@@ -53,9 +58,8 @@ extension BattleService {
         await send(.attack)
     }
 
-    // optional: return the current active session id if available
+    // optional defaults: concrete services should override these if they provide session/opponent info
     func currentSessionId() async -> String? { nil }
 
-    // optional: return a known opponent id if available
     func knownOpponentId() async -> String? { nil }
 }

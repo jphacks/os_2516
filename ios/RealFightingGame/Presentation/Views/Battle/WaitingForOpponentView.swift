@@ -44,12 +44,7 @@ struct WaitingForOpponentView: View {
         }
         .padding()
         .onAppear { viewModel.onAppear() }
-        .onChange(of: viewModel.isReady) { ready in
-            if ready {
-                // programmatic transition - replace current view with BattleView by using Notification
-                NotificationCenter.default.post(name: .waitingDidResolve, object: viewModel.sessionID)
-            }
-        }
+        // WaitingForOpponentViewModel will post a notification with the resolved session id when appropriate.
     }
 }
 

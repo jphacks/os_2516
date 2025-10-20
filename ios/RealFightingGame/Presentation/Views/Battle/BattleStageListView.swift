@@ -32,43 +32,56 @@ struct BattleStageListView: View {
         .navigationTitle("ステージ")
         .task { triggerInitialLoadIfNeeded() }
         .refreshable { viewModel.loadStages(force: true) }
-        .sheet(isPresented: Binding(get: { activeSessionID != nil }, set: { new in
-            if !new {
-                activeSessionID = nil
-                activeService = nil
-            }
-        })) {
-            if let sessionId = activeSessionID {
-                if let service = activeService {
-                    WaitingForOpponentView(sessionID: sessionId, service: service)
-                } else {
-                    Text("セッションを開始できませんでした")
+        // Programmatic navigation: use NavigationLink with isActive to push views on NavigationStack
+        .background(
+            // invisible navigation links
+            Group {
+                NavigationLink(destination: AnyView(
+                    Group {
+                        if let sid = activeSessionID, let svc = activeService {
+                            WaitingForOpponentView(sessionID: sid, service: svc)
+                        } else {
+                            EmptyView()
+                        }
+                    }
+                ), isActive: Binding(get: { activeSessionID != nil && battleSessionIDForBattleView == nil && !showBattleSheet }, set: { new in
+                    if !new {
+                        // if nav is popped, clear waiting state
+                        activeSessionID = nil
+                        activeService = nil
+                    }
+                })) {
+                    EmptyView()
                 }
-            } else {
-                // defensively show empty view if sessionId became nil
-                EmptyView()
+
+                NavigationLink(destination: AnyView(
+                    Group {
+                        if let sid = battleSessionIDForBattleView, let svc = battleServiceForBattleView {
+                            BattleView(sessionID: sid, service: svc, motionService: container.motionService, locationService: container.locationService)
+                        } else {
+                            EmptyView()
+                        }
+                    }
+                ), isActive: $showBattleSheet) {
+                    EmptyView()
+                }
             }
-        }
+        )
         .onReceive(NotificationCenter.default.publisher(for: .waitingDidResolve)) { notif in
+            print("[BattleStageListView] received waitingDidResolve notification object=\(String(describing: notif.object)) activeSessionID=\(String(describing: activeSessionID))")
             guard let sid = notif.object as? String else { return }
+            print("[BattleStageListView] waitingDidResolve sid=\(sid)")
             if sid == activeSessionID {
-                activeSessionID = nil
+                // when waiting resolves, clear waiting state and push battle
                 if let svc = activeService {
                     battleSessionIDForBattleView = sid
                     battleServiceForBattleView = svc
+                    // clear the activeSessionID to indicate waiting cleared
+                    print("[BattleStageListView] transitioning to battle for sid=\(sid), clearing activeSessionID")
+                    activeSessionID = nil
+                    activeService = nil
                     showBattleSheet = true
                 }
-            }
-        }
-        .sheet(isPresented: $showBattleSheet, onDismiss: {
-            battleSessionIDForBattleView = nil
-            battleServiceForBattleView = nil
-            showBattleSheet = false
-        }) {
-            if let sid = battleSessionIDForBattleView, let service = battleServiceForBattleView {
-                BattleView(sessionID: sid, service: service, motionService: container.motionService, locationService: container.locationService)
-            } else {
-                Text("セッションを開始できませんでした")
             }
         }
     }
@@ -132,24 +145,48 @@ struct BattleStageListView: View {
             ForEach(stages, id: \.id) { stage in
                 let service = battleService(for: stage)
                 Button {
-                    // create session then navigate to waiting view if needed
+                    // immediately show waiting UI, then perform join in background
+                    activeSessionID = stage.id
+                    print("[BattleStageListView] activeSessionID set to initial stage id=\(String(describing: activeSessionID))")
+                    activeService = service
+
                     Task {
                         do {
                             _ = try await service.join(sessionID: stage.id)
                             // retrieve session id from service
                             let sid = await service.currentSessionId()
-                            // check opponent via protocol method
+                            print("[BattleStageListView] join completed, service.currentSessionId=\(String(describing: sid))")
+                            // if opponent already present, go straight to battle
                             if await service.knownOpponentId() != nil {
+                                print("[BattleStageListView] opponent already present -> navigating to battle")
                                 battleSessionIDForBattleView = sid
                                 battleServiceForBattleView = service
+                                // clear waiting indicator and push battle
+                                activeSessionID = nil
+                                activeService = nil
                                 showBattleSheet = true
                                 return
                             }
-                            // otherwise show waiting UI sheet
+
+                            // Development shortcut: allow skipping waiting screen when flag enabled
+                            if AppConfiguration.devSkipWaiting {
+                                print("[BattleStageListView] DEV_SKIP_WAITING enabled -> skipping waiting and navigating to battle")
+                                battleSessionIDForBattleView = sid
+                                battleServiceForBattleView = service
+                                activeSessionID = nil
+                                activeService = nil
+                                showBattleSheet = true
+                                return
+                            }
+
+                            // otherwise update waiting sheet to show actual session id
                             activeSessionID = sid
-                            activeService = service
+                            print("[BattleStageListView] activeSessionID updated to real session id=\(String(describing: activeSessionID))")
                         } catch {
-                            // ignore for now - real app should show error
+                            // on failure, clear waiting UI and (optionally) show error
+                            print("[BattleStageListView] join failed: \(error). clearing waiting")
+                            activeSessionID = nil
+                            activeService = nil
                         }
                     }
                 } label: {
