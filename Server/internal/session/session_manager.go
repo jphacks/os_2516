@@ -35,9 +35,6 @@ type Repository interface {
 	CreateSession(ctx context.Context, stageID uuid.UUID, participants []NewParticipant) (*game.Session, []game.Participant, map[uuid.UUID]game.PlayerSnapshot, error)
 	FindJoinableSession(ctx context.Context, stageID uuid.UUID, excludePlayer uuid.UUID) (*game.Session, []game.Participant, map[uuid.UUID]game.PlayerSnapshot, error)
 	AddParticipant(ctx context.Context, sessionID uuid.UUID, participant NewParticipant, activate bool) ([]game.Participant, map[uuid.UUID]game.PlayerSnapshot, error)
-		// ClaimAndAddParticipant atomically finds a joinable session and adds the participant in a single transaction.
-		// Returns nil,nil,nil,nil if no joinable session exists.
-		ClaimAndAddParticipant(ctx context.Context, stageID uuid.UUID, participant NewParticipant, excludePlayer uuid.UUID) (*game.Session, []game.Participant, map[uuid.UUID]game.PlayerSnapshot, error)
 }
 
 // NewParticipant は新規セッション作成時の参加者情報です。

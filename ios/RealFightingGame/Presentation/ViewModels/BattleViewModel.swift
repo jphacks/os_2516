@@ -16,7 +16,6 @@ final class BattleViewModel: ObservableObject {
 
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var state: BattleState = .mock
-    @Published private(set) var opponentIndicator: BattleTelemetry? = nil
     @Published private(set) var isRunning: Bool = false
     @Published private(set) var stepRatePerSec: Double? = nil
     @Published private(set) var motionPermissionDenied: Bool = false
@@ -168,8 +167,6 @@ final class BattleViewModel: ObservableObject {
         )
         logger.debug("[Battle] merge mana (client-authoritative) local=\(localMana, privacy: .public) remote=\(next.selfStatus.mana, privacy: .public)")
         state = merged
-    // update opponent indicator from telemetry
-    opponentIndicator = state.telemetry
 
         if let prev, next.selfStatus.hp < prev.selfStatus.hp {
             haptics.playerHit()
