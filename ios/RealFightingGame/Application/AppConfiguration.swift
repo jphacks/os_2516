@@ -27,4 +27,17 @@ enum AppConfiguration {
 
         return false
     }()
+
+    // Development helper: if set to 1 or true via env or Info.plist, UI will allow skipping the waiting screen
+    static let devSkipWaiting: Bool = {
+        if let override = ProcessInfo.processInfo.environment["DEV_SKIP_WAITING"] {
+            return override == "1" || override.lowercased() == "true"
+        }
+
+        if let infoValue = Bundle.main.infoDictionary?["DEV_SKIP_WAITING"] as? String {
+            return infoValue == "1" || infoValue.lowercased() == "true"
+        }
+
+        return false
+    }()
 }

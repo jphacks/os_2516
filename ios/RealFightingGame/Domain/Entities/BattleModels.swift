@@ -15,6 +15,18 @@ struct BattleTelemetry {
     let lastUpdate: Date
 }
 
+struct BattleOpponentPosition {
+    let playerId: String
+    let latitude: Double
+    let longitude: Double
+    let altitude: Double?
+    let heading: Double
+    let timestamp: Date
+    let horizontalAccuracy: Double?
+    let verticalAccuracy: Double?
+    let headingAccuracy: Double?
+}
+
 struct BattleState {
     var selfStatus: BattleParticipant
     var opponentStatus: BattleParticipant

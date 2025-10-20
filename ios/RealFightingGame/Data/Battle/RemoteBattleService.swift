@@ -14,10 +14,12 @@ actor RemoteBattleService: BattleService {
         struct Player: Decodable {
             let playerId: String
             let role: String
+            let displayName: String?
             let hp: Int
             let mp: Int
             let stance: String?
             let lastPositionId: String?
+            let position: WSPositionPayload?
         }
 
         let sessionId: String
@@ -153,6 +155,8 @@ actor RemoteBattleService: BattleService {
 
     private let attackDamage = 12
     private let specialDamage = 26
+    // position updates older than this (seconds) will be ignored for UI updates
+    private let positionFreshnessThreshold: TimeInterval = 2.0
 
     init(baseURL: URL, token: String, session: URLSession = .shared) {
         self.baseURL = baseURL
@@ -488,6 +492,10 @@ actor RemoteBattleService: BattleService {
         log("decoded message kind=\(payload.kind)")
 
         if let statePayload = payload.state {
+            // debug: list display names included in state
+            var names: [String] = []
+            for p in statePayload.players { names.append(p.displayName ?? p.role) }
+            log("ws received state players=\(names)")
             apply(statePayload)
         }
 
@@ -523,6 +531,14 @@ actor RemoteBattleService: BattleService {
     }
 
     private func apply(position: WSPositionPayload) {
+        // Ignore stale updates
+        let now = Date()
+        let age = now.timeIntervalSince(position.timestamp)
+        if age > positionFreshnessThreshold {
+            log("ignoring stale position for \(position.playerId) age=\(age)")
+            return
+        }
+
         latestPositions[position.playerId] = position
         updateTelemetryFromPositions()
     }
@@ -565,8 +581,17 @@ actor RemoteBattleService: BattleService {
         }
         let opponent = state.players.first { $0.playerId == opponentPlayerId }
 
+        // ingest initial positions from state payload if present
+        for p in state.players {
+            if let pos = p.position {
+                latestPositions[p.playerId] = pos
+            }
+        }
+        // attempt to update telemetry immediately if possible
+        updateTelemetryFromPositions()
+
         let selfStatus = BattleParticipant(
-            displayName: selfPlayer?.role.capitalized ?? "You",
+            displayName: selfPlayer?.displayName ?? selfPlayer?.role.capitalized ?? "You",
             hp: selfPlayer?.hp ?? currentState?.selfStatus.hp ?? 100,
             maxHp: currentState?.selfStatus.maxHp ?? 100,
             mana: selfPlayer?.mp ?? currentState?.selfStatus.mana ?? 100,
@@ -574,7 +599,7 @@ actor RemoteBattleService: BattleService {
         )
 
         let opponentStatus = BattleParticipant(
-            displayName: opponent?.role.capitalized ?? "Opponent",
+            displayName: opponent?.displayName ?? opponent?.role.capitalized ?? "Opponent",
             hp: opponent?.hp ?? currentState?.opponentStatus.hp ?? 100,
             maxHp: currentState?.opponentStatus.maxHp ?? 100,
             mana: opponent?.mp ?? currentState?.opponentStatus.mana ?? 100,
