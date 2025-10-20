@@ -47,12 +47,13 @@ struct OpponentLocatorView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .background(
-            ZStack {
-                LinearGradient(colors: [Color(.sRGB, red: 0.04, green: 0.03, blue: 0.05, opacity: 0.6), Color(.sRGB, red: 0.09, green: 0.06, blue: 0.08, opacity: 0.28)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                RoundedRectangle(cornerRadius: 24)
-                    .stroke(LinearGradient(colors: [Color.yellow.opacity(0.12), Color.white.opacity(0.02)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
-            }
-        , in: Capsule())
+            LinearGradient(colors: [Color(.sRGB, red: 0.04, green: 0.03, blue: 0.05, opacity: 0.6), Color(.sRGB, red: 0.09, green: 0.06, blue: 0.08, opacity: 0.28)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        )
+        .clipShape(Capsule())
+        .overlay(
+            Capsule()
+                .stroke(LinearGradient(colors: [Color.yellow.opacity(0.12), Color.white.opacity(0.02)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
+        )
         .shadow(color: Color.black.opacity(0.45), radius: 10, x: 0, y: 4)
         .onTapGesture { expanded.toggle() }
     }
