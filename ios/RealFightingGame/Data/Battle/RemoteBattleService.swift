@@ -154,6 +154,8 @@ actor RemoteBattleService: BattleService {
 
     private let attackDamage = 12
     private let specialDamage = 26
+    // position updates older than this (seconds) will be ignored for UI updates
+    private let positionFreshnessThreshold: TimeInterval = 2.0
 
     init(baseURL: URL, token: String, session: URLSession = .shared) {
         self.baseURL = baseURL
@@ -514,6 +516,14 @@ actor RemoteBattleService: BattleService {
     }
 
     private func apply(position: WSPositionPayload) {
+        // Ignore stale updates
+        let now = Date()
+        let age = now.timeIntervalSince(position.timestamp)
+        if age > positionFreshnessThreshold {
+            log("ignoring stale position for \(position.playerId) age=\(age)")
+            return
+        }
+
         latestPositions[position.playerId] = position
         updateTelemetryFromPositions()
     }

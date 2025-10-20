@@ -23,7 +23,26 @@ struct BattleView: View {
     }
 
     var body: some View {
-        VStack(spacing: 16) {
+        ZStack {
+            // Fantasy background: subtle vignette + gradient + faux particles
+            LinearGradient(colors: [Color(.sRGB, red: 0.02, green: 0.03, blue: 0.08), Color(.sRGB, red: 0.07, green: 0.02, blue: 0.04)], startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea()
+
+            // soft vignette
+            RadialGradient(gradient: Gradient(colors: [Color.black.opacity(0.0), Color.black.opacity(0.35)]), center: .center, startRadius: 200, endRadius: 700)
+                .blendMode(.overlay)
+                .ignoresSafeArea()
+
+            // subtle floating particles
+            ForEach(0..<8, id: \ .self) { i in
+                Circle()
+                    .fill(Color.white.opacity(0.02 + Double(i) * 0.01))
+                    .frame(width: CGFloat(6 + (i % 3) * 6), height: CGFloat(6 + (i % 3) * 6))
+                    .position(x: CGFloat(40 + i * 60), y: CGFloat(80 + (i % 5) * 90))
+                    .blur(radius: 6)
+            }
+
+            VStack(spacing: 16) {
             // 上部: 相手のステータスのみ表示
             HStack(alignment: .top) {
                 Spacer(minLength: 8)
@@ -87,6 +106,8 @@ struct BattleView: View {
             actions
             .padding(.horizontal)
             .padding(.bottom)
+            .background(.clear)
+        }
         }
         .overlay(alignment: .trailing) {
             RunStatusIndicator(isRunning: viewModel.isRunning,
@@ -100,8 +121,16 @@ struct BattleView: View {
                 }
             }
             if let telemetry = viewModel.opponentIndicator {
+                CenterDirectionIndicator(heading: telemetry.headingDegrees, freshnessAge: Date().timeIntervalSince(telemetry.lastUpdate))
+            }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if let telemetry = viewModel.opponentIndicator {
                 OpponentLocatorView(telemetry: telemetry)
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .padding(.trailing, 12)
+                    .padding(.bottom, 12)
+                    .allowsHitTesting(true)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .onChange(of: viewModelPhase) { phase in
@@ -166,11 +195,28 @@ struct BattleView: View {
             fireballTrigger += 1
             showFireball = true
         } label: {
-            Text("ファイヤーボール (−\(viewModel.attackManaCost))").font(.title3).bold()
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
+            HStack(spacing: 12) {
+                Image(systemName: "flame.fill")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(LinearGradient(colors: [.yellow, .orange], startPoint: .top, endPoint: .bottom))
+                    .shadow(color: .orange.opacity(0.6), radius: 6)
+                Text("ファイヤーボール (−\(viewModel.attackManaCost))")
+                    .font(.title3).bold()
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .background(
+                LinearGradient(colors: [Color(.sRGB, red: 0.9, green: 0.36, blue: 0.12), Color(.sRGB, red: 0.7, green: 0.12, blue: 0.08)], startPoint: .topLeading, endPoint: .bottomTrailing)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .shadow(color: Color.red.opacity(0.28), radius: 14, x: 0, y: 6)
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(LinearGradient(colors: [Color.white.opacity(0.18), Color.white.opacity(0.02)], startPoint: .top, endPoint: .bottom), lineWidth: 1)
+            )
+            .scaleEffect(isInputEnabled && viewModel.state.selfStatus.mana >= viewModel.attackManaCost ? 1.0 : 0.96)
+            .animation(.spring(response: 0.35, dampingFraction: 0.7), value: viewModel.state.selfStatus.mana)
         }
-        .buttonStyle(.borderedProminent)
         .disabled(!(isInputEnabled && viewModel.state.selfStatus.mana >= viewModel.attackManaCost))
         .accessibilityLabel(Text("ファイヤーボール"))
         .accessibilityHint(Text("MPを消費してファイヤーボールを放ちます"))

@@ -291,7 +291,6 @@ final class BattleViewModel: ObservableObject {
             chantProgress: state.chantProgress,
             runEnergy: state.runEnergy
         )
-        opponentIndicator = telemetry
     }
 
     private func updateManaRegenLoop(running: Bool) {
