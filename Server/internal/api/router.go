@@ -491,7 +491,13 @@ func (h *Handler) websocket(w http.ResponseWriter, r *http.Request) {
 	}
 	defer h.sessionManager.DetachConnection(sessionID, playerID)
 
-	if err := conn.WriteJSON(wsServerMessage{Kind: "init", State: h.newStatePayload(battle.Snapshot())}); err != nil {
+	statePayload := h.newStatePayload(battle.Snapshot())
+	var playerList []string
+	for _, p := range statePayload.Players {
+		playerList = append(playerList, fmt.Sprintf("%s(%s)", p.DisplayName, p.PlayerID))
+	}
+	log.Printf("ws:init session=%s to player=%s players=%v", sessionID.String(), playerID.String(), playerList)
+	if err := conn.WriteJSON(wsServerMessage{Kind: "init", State: statePayload}); err != nil {
 		log.Printf("websocket write error: %v", err)
 		return
 	}
@@ -539,10 +545,14 @@ func (h *Handler) websocket(w http.ResponseWriter, r *http.Request) {
 				h.writeWSError(conn, "attack_failed", err)
 				continue
 			}
+			statePayload := h.newStatePayload(state)
+			var players []string
+			for _, p := range statePayload.Players { players = append(players, p.DisplayName) }
+			log.Printf("ws:event broadcast session=%s players=%v", sessionID.String(), players)
 			response := wsServerMessage{
 				Kind:         "event",
 				Event:        newEventPayload(*event),
-				State:        h.newStatePayload(state),
+				State:        statePayload,
 				AttackResult: newAttackResultPayload(request, outcome, event),
 			}
 			h.broadcast(sessionID, response, uuid.Nil)
@@ -560,10 +570,14 @@ func (h *Handler) websocket(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
+			statePayload := h.newStatePayload(state)
+			var players2 []string
+			for _, p := range statePayload.Players { players2 = append(players2, p.DisplayName) }
+			log.Printf("ws:event apply session=%s players=%v", sessionID.String(), players2)
 			response := wsServerMessage{
 				Kind:  "event",
 				Event: newEventPayload(event),
-				State: h.newStatePayload(state),
+				State: statePayload,
 			}
 			h.broadcast(sessionID, response, uuid.Nil)
 		case "end":
@@ -573,7 +587,11 @@ func (h *Handler) websocket(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
-			response := wsServerMessage{Kind: "end", State: h.newStatePayload(state)}
+			statePayload := h.newStatePayload(state)
+			var players3 []string
+			for _, p := range statePayload.Players { players3 = append(players3, p.DisplayName) }
+			log.Printf("ws:end session=%s players=%v", sessionID.String(), players3)
+			response := wsServerMessage{Kind: "end", State: statePayload}
 			h.broadcast(sessionID, response, uuid.Nil)
 			return
 		default:

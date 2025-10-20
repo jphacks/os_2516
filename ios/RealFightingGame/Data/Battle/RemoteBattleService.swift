@@ -482,6 +482,10 @@ actor RemoteBattleService: BattleService {
         log("decoded message kind=\(payload.kind)")
 
         if let statePayload = payload.state {
+            // debug: list display names included in state
+            var names: [String] = []
+            for p in statePayload.players { names.append(p.displayName ?? p.role) }
+            log("ws received state players=\(names)")
             apply(statePayload)
         }
 
