@@ -52,4 +52,10 @@ extension BattleService {
     func triggerAttack(with context: BattleAttackContext) async {
         await send(.attack)
     }
+
+    // optional: return the current active session id if available
+    func currentSessionId() async -> String? { nil }
+
+    // optional: return a known opponent id if available
+    func knownOpponentId() async -> String? { nil }
 }

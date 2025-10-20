@@ -4,6 +4,11 @@ struct BattleStageListView: View {
     @StateObject private var viewModel: BattleStageListViewModel
     @EnvironmentObject private var container: AppContainer
     @EnvironmentObject private var authViewModel: AuthViewModel
+    @State private var activeSessionID: String? = nil
+    @State private var activeService: BattleService? = nil
+    @State private var showBattleSheet: Bool = false
+    @State private var battleSessionIDForBattleView: String? = nil
+    @State private var battleServiceForBattleView: BattleService? = nil
 
     init(mapService: MapService, locationService: LocationService? = nil) {
         _viewModel = StateObject(wrappedValue: BattleStageListViewModel(mapService: mapService,
@@ -27,6 +32,45 @@ struct BattleStageListView: View {
         .navigationTitle("ステージ")
         .task { triggerInitialLoadIfNeeded() }
         .refreshable { viewModel.loadStages(force: true) }
+        .sheet(isPresented: Binding(get: { activeSessionID != nil }, set: { new in
+            if !new {
+                activeSessionID = nil
+                activeService = nil
+            }
+        })) {
+            if let sessionId = activeSessionID {
+                if let service = activeService {
+                    WaitingForOpponentView(sessionID: sessionId, service: service)
+                } else {
+                    Text("セッションを開始できませんでした")
+                }
+            } else {
+                // defensively show empty view if sessionId became nil
+                EmptyView()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .waitingDidResolve)) { notif in
+            guard let sid = notif.object as? String else { return }
+            if sid == activeSessionID {
+                activeSessionID = nil
+                if let svc = activeService {
+                    battleSessionIDForBattleView = sid
+                    battleServiceForBattleView = svc
+                    showBattleSheet = true
+                }
+            }
+        }
+        .sheet(isPresented: $showBattleSheet, onDismiss: {
+            battleSessionIDForBattleView = nil
+            battleServiceForBattleView = nil
+            showBattleSheet = false
+        }) {
+            if let sid = battleSessionIDForBattleView, let service = battleServiceForBattleView {
+                BattleView(sessionID: sid, service: service, motionService: container.motionService, locationService: container.locationService)
+            } else {
+                Text("セッションを開始できませんでした")
+            }
+        }
     }
 
     private func triggerInitialLoadIfNeeded() {
@@ -85,13 +129,29 @@ struct BattleStageListView: View {
     @ViewBuilder
     private func stagesSection(_ stages: [BattleStageListViewModel.Stage]) -> some View {
         Section("付近のステージ") {
-            ForEach(stages) { stage in
+            ForEach(stages, id: \.id) { stage in
                 let service = battleService(for: stage)
-                NavigationLink {
-                    BattleView(sessionID: stage.id,
-                               service: service,
-                               motionService: container.motionService,
-                               locationService: container.locationService)
+                Button {
+                    // create session then navigate to waiting view if needed
+                    Task {
+                        do {
+                            _ = try await service.join(sessionID: stage.id)
+                            // retrieve session id from service
+                            let sid = await service.currentSessionId()
+                            // check opponent via protocol method
+                            if await service.knownOpponentId() != nil {
+                                battleSessionIDForBattleView = sid
+                                battleServiceForBattleView = service
+                                showBattleSheet = true
+                                return
+                            }
+                            // otherwise show waiting UI sheet
+                            activeSessionID = sid
+                            activeService = service
+                        } catch {
+                            // ignore for now - real app should show error
+                        }
+                    }
                 } label: {
                     stageRow(stage)
                 }
@@ -149,6 +209,11 @@ private extension BattleStageListView {
 
         return ServiceFactory.makeBattleService()
     }
+}
+
+// programmatic navigation handling: when WaitingForOpponent posts that it resolved, navigate to BattleView
+extension BattleStageListView {
+    // Use NavigationStack's new .navigationDestination via environment when needed - keep simple: observe notification and push
 }
 
 #if DEBUG
