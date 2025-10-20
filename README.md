@@ -1,6 +1,7 @@
 # 魔法少女になりたい
 発表の動画です！！
-[!['HackDay発表の動画']('image/Group1.jpg')]('https://www.youtube.com/watch?v=76bCABPoBc8')
+[動画リンク](https://www.youtube.com/watch?v=76bCABPoBc8)
+
 ![IMAGE ALT TEXT HERE](image/IMG_1134.PNG)
 READMEもっと更新します！！
 ## 製品概要
