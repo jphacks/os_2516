@@ -45,26 +45,24 @@ Core Hapticsによる振動フィードバック、詠唱による攻撃シス�
 - **AI対戦相手**: 一人でも楽しめるAI対戦機能
 
 ### 注力したこと（こだわり等）
-* **技術的挑戦**: UWB技術の実用化に挑戦し、高精度な位置検出システムを構築
+* **技術的挑戦**: ~~UWB技術の実用化に挑戦し、高精度な位置検出システムを構築~~
 * **リアルタイム性**: WebSocket通信とサーバーサイド処理により、低遅延な対戦体験を実現
 * **ユーザビリティ**: 直感的な操作と分かりやすいUI/UXの設計
 * **スケーラビリティ**: モノレポ構成とクリーンアーキテクチャによる保守性の高い設計
+* **CI/CDへの挑戦**: 開発初期の段階からGoogle CloudへのGitHub Actionを利用したデプロイのワークフローの構築を行った。
 
 ## 開発技術
 ### 活用した技術
 #### API・データ
-* **Supabase**: リアルタイムデータベースと認証システム
-* **PostgreSQL**: プレイヤー情報、ゲームセッション、位置ログの管理
+* **PostgreSQL(Supabase)**: プレイヤー情報、ゲームセッション、位置ログの管理
 * **WebSocket**: リアルタイム通信による低遅延対戦
 * **JWT**: セキュアな認証トークン管理
 
 #### フレームワーク・ライブラリ・モジュール
 * **iOS (SwiftUI)**: ネイティブiOSアプリケーション
 * **Go**: 高性能なサーバーサイド処理
-* **Core Haptics**: 振動フィードバックシステム
 * **Nearby Interaction Framework**: UWB位置検出
 * **Core Location**: GPS位置情報のフォールバック
-* **Gorilla WebSocket**: Go言語でのWebSocket通信
 
 #### デバイス
 * **iPhone**: UWB対応デバイスでの位置検出
@@ -73,9 +71,6 @@ Core Hapticsによる振動フィードバック、詠唱による攻撃シス�
 
 ### 独自技術
 #### ハッカソンで開発した独自機能・技術
-~~* **UWB位置検出システム**: Nearby Interaction Frameworkを活用した高精度位置検出~~
-  - ~~実装ファイル: `ios/RealFightingGame/Data/Location/LocationService.swift`~~
-  - ~~フォールバック機能: Bluetooth + 加速度センサーによる位置推定~~
 UWBが謎のばぐで動かなかったのでGPSで実装してます！！
 * **リアルタイム対戦エンジン**: WebSocket通信による低遅延ゲーム同期
   - 実装ファイル: `Server/internal/session/session_manager.go`
