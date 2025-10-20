@@ -52,6 +52,10 @@ func (s *stubRepository) AddParticipant(ctx context.Context, sessionID uuid.UUID
 	panic("unexpected call to AddParticipant")
 }
 
+func (s *stubRepository) ClaimAndAddParticipant(ctx context.Context, stageID uuid.UUID, participant NewParticipant, excludePlayer uuid.UUID) (*game.Session, []game.Participant, map[uuid.UUID]game.PlayerSnapshot, error) {
+	panic("unexpected call to ClaimAndAddParticipant")
+}
+
 func TestManagerUpdatePosition(t *testing.T) {
 	repo := &stubRepository{}
 	mgr := NewManager(repo, attack.NewDefaultResolver())

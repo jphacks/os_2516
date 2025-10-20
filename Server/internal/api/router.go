@@ -316,31 +316,27 @@ func (h *Handler) createGameSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 強制対戦相手が指定されていない場合、同一ステージの待機セッションを検索
+	// 強制対戦相手が指定されていない場合、同一ステージの待機セッションを原子的に確保して参加する
 	if (req.OpponentPlayerID == nil || *req.OpponentPlayerID == "") && h.sessionRepo != nil {
-		if sess, _, _, err := h.sessionRepo.FindJoinableSession(ctx, stageID, player.ID); err != nil {
-			http.Error(w, fmt.Sprintf("failed to find joinable session: %v", err), http.StatusInternalServerError)
+		newParticipant := session.NewParticipant{
+			PlayerID:  player.ID,
+			Role:      "challenger",
+			InitialHP: player.HP,
+			InitialMP: player.MP,
+		}
+		if sess, updatedParts, updatedSnaps, err := h.sessionRepo.ClaimAndAddParticipant(ctx, stageID, newParticipant, player.ID); err != nil {
+			http.Error(w, fmt.Sprintf("failed to claim and join session: %v", err), http.StatusInternalServerError)
 			return
 		} else if sess != nil {
-			// 既存セッションに参加
-			newParticipant := session.NewParticipant{
-				PlayerID:  player.ID,
-				Role:      "challenger",
-				InitialHP: player.HP,
-				InitialMP: player.MP,
-			}
-			updatedParts, updatedSnaps, err := h.sessionRepo.AddParticipant(ctx, sess.ID, newParticipant, true)
-			if err != nil {
-				http.Error(w, fmt.Sprintf("failed to join session: %v", err), http.StatusInternalServerError)
-				return
-			}
-			sess, err = h.sessionRepo.GetSession(ctx, sess.ID)
+			// Successfully claimed and joined an existing session
+			// reload session from repo to ensure latest
+			sessReloaded, err := h.sessionRepo.GetSession(ctx, sess.ID)
 			if err != nil {
 				http.Error(w, fmt.Sprintf("failed to reload session: %v", err), http.StatusInternalServerError)
 				return
 			}
 			if h.sessionManager != nil {
-				h.sessionManager.RemoveSession(sess.ID)
+				h.sessionManager.RemoveSession(sessReloaded.ID)
 			}
 
 			playersState := make(map[uuid.UUID]game.PlayerState, len(updatedParts))
@@ -352,7 +348,7 @@ func (h *Handler) createGameSession(w http.ResponseWriter, r *http.Request) {
 				playersState[part.PlayerID] = game.PlayerState{Participant: part, Snapshot: snap}
 			}
 
-			state := h.newStatePayload(game.GameStateSnapshot{Session: *sess, Players: playersState})
+			state := h.newStatePayload(game.GameStateSnapshot{Session: *sessReloaded, Players: playersState})
 
 			var opponentIDPtr *string
 			for _, part := range updatedParts {
@@ -364,10 +360,10 @@ func (h *Handler) createGameSession(w http.ResponseWriter, r *http.Request) {
 			}
 
 			respondJSON(w, http.StatusCreated, createSessionResponse{
-				SessionID:  sess.ID.String(),
+				SessionID:  sessReloaded.ID.String(),
 				PlayerID:   player.ID.String(),
 				OpponentID: opponentIDPtr,
-				StageID:    sess.StageID.String(),
+				StageID:    sessReloaded.StageID.String(),
 				State:      state,
 			})
 			return
