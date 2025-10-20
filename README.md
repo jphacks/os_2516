@@ -1,7 +1,7 @@
 # 魔法少女になりたい
 
-[![IMAGE ALT TEXT HERE](https://jphacks.com/wp-content/uploads/2025/05/JPHACKS2025_ogp.jpg)](https://www.youtube.com/watch?v=lA9EluZugD8)
-
+![IMAGE ALT TEXT HERE](image/IMG_1134.PNG)
+READMEもっと更新します！！
 ## 製品概要
 ### 背景(製品開発のきっかけ、課題等）
 従来のモバイルゲームは画面を見ながら指で操作するものが主流でしたが、これでは現実世界との接続が薄く、運動不足やコミュニケーション不足といった課題があります。また、ARゲームは存在しますが、実際に体を動かして対戦するゲームは限られていました。

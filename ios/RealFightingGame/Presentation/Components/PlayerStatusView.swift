@@ -27,13 +27,14 @@ struct PlayerStatusView: View {
         }
         .padding(14)
         .background(
-            ZStack {
-                // Subtle parchment-like background using gradient
-                LinearGradient(colors: [Color(.sRGB, red: 0.07, green: 0.04, blue: 0.06, opacity: 0.55), Color(.sRGB, red: 0.12, green: 0.07, blue: 0.09, opacity: 0.28)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                RoundedRectangle(cornerRadius: 18)
-                    .stroke(LinearGradient(colors: [accent.opacity(0.9), Color.white.opacity(0.08)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.5)
-                    .blendMode(.overlay)
-            }, in: RoundedRectangle(cornerRadius: 18))
+            LinearGradient(colors: [Color(.sRGB, red: 0.07, green: 0.04, blue: 0.06, opacity: 0.55), Color(.sRGB, red: 0.12, green: 0.07, blue: 0.09, opacity: 0.28)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(LinearGradient(colors: [accent.opacity(0.9), Color.white.opacity(0.08)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.5)
+                .blendMode(.overlay)
+        )
         .frame(maxWidth: 280, alignment: alignment == .leading ? .leading : .trailing)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("\(participant.displayName) のステータス"))
