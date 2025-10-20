@@ -72,15 +72,18 @@ struct BattleStageListView: View {
             guard let sid = notif.object as? String else { return }
             print("[BattleStageListView] waitingDidResolve sid=\(sid)")
             if sid == activeSessionID {
-                // when waiting resolves, clear waiting state and push battle
+                // when waiting resolves, push battle then clear waiting state to avoid NavigationLink race
                 if let svc = activeService {
                     battleSessionIDForBattleView = sid
                     battleServiceForBattleView = svc
-                    // clear the activeSessionID to indicate waiting cleared
-                    print("[BattleStageListView] transitioning to battle for sid=\(sid), clearing activeSessionID")
-                    activeSessionID = nil
-                    activeService = nil
+                    print("[BattleStageListView] transitioning to battle for sid=\(sid)")
                     showBattleSheet = true
+                    Task {
+                        try? await Task.sleep(nanoseconds: 150_000_000) // 150ms
+                        print("[BattleStageListView] clearing activeSessionID for sid=\(sid)")
+                        activeSessionID = nil
+                        activeService = nil
+                    }
                 }
             }
         }
@@ -161,10 +164,14 @@ struct BattleStageListView: View {
                                 print("[BattleStageListView] opponent already present -> navigating to battle")
                                 battleSessionIDForBattleView = sid
                                 battleServiceForBattleView = service
-                                // clear waiting indicator and push battle
-                                activeSessionID = nil
-                                activeService = nil
+                                // push BattleView first
                                 showBattleSheet = true
+                                // then clear waiting state shortly after to avoid NavigationLink race
+                                Task {
+                                    try? await Task.sleep(nanoseconds: 150_000_000) // 150ms
+                                    activeSessionID = nil
+                                    activeService = nil
+                                }
                                 return
                             }
 
@@ -173,9 +180,12 @@ struct BattleStageListView: View {
                                 print("[BattleStageListView] DEV_SKIP_WAITING enabled -> skipping waiting and navigating to battle")
                                 battleSessionIDForBattleView = sid
                                 battleServiceForBattleView = service
-                                activeSessionID = nil
-                                activeService = nil
                                 showBattleSheet = true
+                                Task {
+                                    try? await Task.sleep(nanoseconds: 150_000_000) // 150ms
+                                    activeSessionID = nil
+                                    activeService = nil
+                                }
                                 return
                             }
 
