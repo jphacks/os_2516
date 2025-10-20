@@ -14,6 +14,7 @@ actor RemoteBattleService: BattleService {
         struct Player: Decodable {
             let playerId: String
             let role: String
+            let displayName: String?
             let hp: Int
             let mp: Int
             let stance: String?
@@ -191,6 +192,16 @@ actor RemoteBattleService: BattleService {
         log("join completed sessionId=\(response.sessionId) selfPlayerId=\(response.playerId) opponentPlayerId=\(response.opponentId ?? "nil")")
 
         return state
+    }
+
+    /// Public accessor to observe whether an opponent player id has already been observed by the service.
+    /// Used by UI code to decide whether to wait for another participant.
+    func knownOpponentId() async -> String? {
+        return opponentPlayerId
+    }
+
+    func currentSessionId() async -> String? {
+        return activeSessionId
     }
 
     func send(_ action: BattleAction) async {
@@ -481,6 +492,10 @@ actor RemoteBattleService: BattleService {
         log("decoded message kind=\(payload.kind)")
 
         if let statePayload = payload.state {
+            // debug: list display names included in state
+            var names: [String] = []
+            for p in statePayload.players { names.append(p.displayName ?? p.role) }
+            log("ws received state players=\(names)")
             apply(statePayload)
         }
 
@@ -576,7 +591,7 @@ actor RemoteBattleService: BattleService {
         updateTelemetryFromPositions()
 
         let selfStatus = BattleParticipant(
-            displayName: selfPlayer?.role.capitalized ?? "You",
+            displayName: selfPlayer?.displayName ?? selfPlayer?.role.capitalized ?? "You",
             hp: selfPlayer?.hp ?? currentState?.selfStatus.hp ?? 100,
             maxHp: currentState?.selfStatus.maxHp ?? 100,
             mana: selfPlayer?.mp ?? currentState?.selfStatus.mana ?? 100,
@@ -584,7 +599,7 @@ actor RemoteBattleService: BattleService {
         )
 
         let opponentStatus = BattleParticipant(
-            displayName: opponent?.role.capitalized ?? "Opponent",
+            displayName: opponent?.displayName ?? opponent?.role.capitalized ?? "Opponent",
             hp: opponent?.hp ?? currentState?.opponentStatus.hp ?? 100,
             maxHp: currentState?.opponentStatus.maxHp ?? 100,
             mana: opponent?.mp ?? currentState?.opponentStatus.mana ?? 100,

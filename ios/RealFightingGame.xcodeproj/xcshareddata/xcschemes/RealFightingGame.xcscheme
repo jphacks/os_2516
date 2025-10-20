@@ -80,6 +80,11 @@
             value = "https://api-server-215122107853.asia-northeast1.run.app"
             isEnabled = "YES">
          </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "DEV_SKIP_WAITING"
+            value = "1"
+            isEnabled = "YES">
+         </EnvironmentVariable>
       </EnvironmentVariables>
    </LaunchAction>
    <ProfileAction
