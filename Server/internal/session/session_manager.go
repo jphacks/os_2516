@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -128,6 +129,8 @@ func (m *Manager) AttachConnection(ctx context.Context, sessionID, playerID uuid
 	// 自分のスナップショットを最新化（DB未反映時の再接続対応）
 	player.Snapshot.UpdatedAt = time.Now()
 
+	log.Printf("session: attach session=%s player=%s connections=%d", sessionID.String(), playerID.String(), len(bs.Connections))
+
 	return bs, nil
 }
 
@@ -172,12 +175,40 @@ func (m *Manager) DetachConnection(sessionID, playerID uuid.UUID) {
 		return
 	}
 
+	// Close and remove the connection. If this was the last connection for the
+	// session, ask the manager to remove the in-memory session to avoid leaving
+	// empty sessions around.
 	bs.mu.Lock()
 	if conn := bs.Connections[playerID]; conn != nil {
 		_ = conn.Close()
 	}
 	delete(bs.Connections, playerID)
+	// determine whether we should remove the session from manager
+	shouldRemove := len(bs.Connections) == 0
 	bs.mu.Unlock()
+	log.Printf("session: detach session=%s player=%s remaining_connections=%d", sessionID.String(), playerID.String(), func() int { bs.mu.RLock(); defer bs.mu.RUnlock(); return len(bs.Connections) }())
+
+	if shouldRemove {
+		// Attempt to remove the session atomically: re-check under manager lock
+		// that the session still maps to the same BattleSession and that it has
+		// zero connections. This avoids a race where an AttachConnection adds a
+		// connection between our check and removal.
+		m.mu.Lock()
+		cur, ok := m.sessions[sessionID]
+		if ok && cur == bs {
+			// re-check connections while holding bs.mu
+			bs.mu.Lock()
+			stillEmpty := len(bs.Connections) == 0
+			bs.mu.Unlock()
+			if stillEmpty {
+				log.Printf("session: remove empty session=%s after detach player=%s", sessionID.String(), playerID.String())
+				// safe to remove from manager without calling RemoveSession to
+				// avoid double-locking; there are no connections to close.
+				delete(m.sessions, sessionID)
+			}
+		}
+		m.mu.Unlock()
+	}
 }
 
 // RemoveSession はインメモリのセッションを破棄します。
